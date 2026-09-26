@@ -54,7 +54,7 @@ class Transcdr(SyncAPIClient):
         job = client.jobs.create(input="https://example.com/in.mp4", preset="hls-av1-abr")
 
     ``api_key`` defaults to ``$TRANSCDR_API_KEY`` and ``base_url`` to
-    ``$TRANSCDR_BASE_URL`` or ``https://api.transcdr.io``. GET/PUT/DELETE
+    ``$TRANSCDR_BASE_URL`` or ``https://api.transcdr.com``. GET/PUT/DELETE
     requests and POSTs carrying an ``Idempotency-Key`` are retried up to
     ``max_retries`` times on connection errors, 408, 429 and 5xx.
     """

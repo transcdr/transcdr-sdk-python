@@ -61,7 +61,7 @@ def test_env_defaults(monkeypatch):
 def test_default_base_url(monkeypatch):
     monkeypatch.delenv("TRANSCDR_BASE_URL", raising=False)
     client = transcdr.Transcdr(api_key="tdk_test_x")
-    assert client.base_url == "https://api.transcdr.io"
+    assert client.base_url == "https://api.transcdr.com"
     assert client.livemode is False
     client.close()
 
