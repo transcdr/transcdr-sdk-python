@@ -1,0 +1,143 @@
+"""Webhook signature verification.
+
+Every delivery carries::
+
+    Transcdr-Signature: t=<unix seconds>,v1=<hex hmac_sha256(secret, "<t>.<raw body>")>
+
+Verify against the **raw** request body, before any JSON parsing::
+
+    from transcdr.webhooks import construct_event
+
+    event = construct_event(request.body, request.headers["Transcdr-Signature"], secret)
+"""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+import time
+from typing import List, Optional, Tuple, Union, cast
+
+from ._errors import SignatureVerificationError
+from .types import Event
+
+__all__ = [
+    "SIGNATURE_HEADER",
+    "DEFAULT_TOLERANCE",
+    "compute_signature",
+    "sign_payload",
+    "parse_signature_header",
+    "verify_signature",
+    "construct_event",
+]
+
+SIGNATURE_HEADER = "Transcdr-Signature"
+DEFAULT_TOLERANCE = 300
+
+Payload = Union[bytes, bytearray, memoryview, str]
+
+
+def _to_bytes(payload: Payload) -> bytes:
+    if isinstance(payload, str):
+        return payload.encode("utf-8")
+    return bytes(payload)
+
+
+def compute_signature(payload: Payload, secret: str, timestamp: int) -> str:
+    """Lowercase hex HMAC-SHA256 of ``"<timestamp>.<payload>"`` under ``secret``."""
+    message = str(int(timestamp)).encode("ascii") + b"." + _to_bytes(payload)
+    return hmac.new(secret.encode("utf-8"), message, hashlib.sha256).hexdigest()
+
+
+def sign_payload(payload: Payload, secret: str, timestamp: Optional[int] = None) -> str:
+    """Build a ``Transcdr-Signature`` header value — handy for testing your receiver."""
+    ts = int(time.time()) if timestamp is None else int(timestamp)
+    return f"t={ts},v1={compute_signature(payload, secret, ts)}"
+
+
+def parse_signature_header(header: str) -> Tuple[Optional[int], List[str]]:
+    """Parse ``t=…,v1=…[,v1=…]`` into ``(timestamp, [signatures])``."""
+    timestamp: Optional[int] = None
+    signatures: List[str] = []
+    for part in header.split(","):
+        key, sep, value = part.partition("=")
+        if not sep:
+            continue
+        key, value = key.strip(), value.strip()
+        if key == "t" and value.isdigit():
+            timestamp = int(value)
+        elif key == "v1" and value:
+            signatures.append(value.lower())
+    return timestamp, signatures
+
+
+def _check(
+    payload: Payload,
+    header: Optional[str],
+    secret: str,
+    tolerance: Optional[int],
+    now: Optional[float],
+) -> Optional[str]:
+    """``None`` when valid, else the reason it is not."""
+    if not header:
+        return "Missing Transcdr-Signature header."
+    if not secret:
+        return "No webhook secret configured."
+    timestamp, signatures = parse_signature_header(header)
+    if timestamp is None:
+        return "Transcdr-Signature header has no timestamp."
+    if not signatures:
+        return "Transcdr-Signature header has no v1 signature."
+    current = time.time() if now is None else now
+    if tolerance is not None and tolerance > 0 and abs(current - timestamp) > tolerance:
+        return "Timestamp outside the tolerance zone."
+    expected = compute_signature(payload, secret, timestamp)
+    if not any(hmac.compare_digest(expected, sig) for sig in signatures):
+        return "No signature matches the expected signature for the payload."
+    return None
+
+
+def verify_signature(
+    payload: Payload,
+    header: Optional[str],
+    secret: str,
+    tolerance: Optional[int] = DEFAULT_TOLERANCE,
+    *,
+    now: Optional[float] = None,
+) -> bool:
+    """Whether ``header`` is a valid signature of the raw ``payload``.
+
+    ``tolerance`` is the allowed clock skew in seconds (``None``/``0`` disables
+    the check — not recommended, it re-opens replay attacks). ``now`` overrides
+    the current unix time, for tests.
+    """
+    return _check(payload, header, secret, tolerance, now) is None
+
+
+def construct_event(
+    payload: Payload,
+    header: Optional[str],
+    secret: str,
+    tolerance: Optional[int] = DEFAULT_TOLERANCE,
+    *,
+    now: Optional[float] = None,
+) -> Event:
+    """Verify the signature, then parse the body into an :class:`~transcdr.types.Event`.
+
+    Raises :class:`~transcdr.SignatureVerificationError` when the signature is
+    missing, stale or wrong, or the body is not a JSON object."""
+    reason = _check(payload, header, secret, tolerance, now)
+    if reason is not None:
+        raise SignatureVerificationError(reason, header=header, payload=payload)
+    try:
+        event = json.loads(_to_bytes(payload).decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise SignatureVerificationError(
+            f"Webhook payload is not valid JSON: {exc}", header=header, payload=payload
+        ) from exc
+    if not isinstance(event, dict):
+        raise SignatureVerificationError(
+            "Webhook payload is not a JSON object.", header=header, payload=payload
+        )
+    return cast(Event, event)

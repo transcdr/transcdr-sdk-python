@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[project]
+name = "transcdr"
+dynamic = ["version"]
+description = "Python client for the Transcdr video-transcoding API"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Transcdr" }]
+keywords = ["transcdr", "video", "transcoding", "av1", "hls", "api"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Typing :: Typed",
+]
+dependencies = ["httpx>=0.23,<1"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "pytest-asyncio>=0.21"]
+
+[project.urls]
+Homepage = "https://transcdr.io"
+Documentation = "https://api.transcdr.io/v1/openapi.json"
+
+[tool.hatch.version]
+path = "src/transcdr/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/transcdr"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
