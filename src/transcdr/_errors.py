@@ -106,7 +106,9 @@ class RateLimitError(TranscdrError):
 
 
 class QuotaError(TranscdrError):
-    """402 — the plan's quota or limits were exceeded."""
+    """402 — not enough credit (``insufficient_credit``), the job would cost
+    more than its ``max_cost_cents`` (``cost_limit_exceeded``), or the monthly
+    spending limit is reached (``spend_limit_reached``)."""
 
 
 class APIError(TranscdrError):

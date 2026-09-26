@@ -99,7 +99,7 @@ asyncio.run(main())
 | `client.automations` | `list`, `create`, `retrieve`, `update`, `delete`, `run`, `trigger`, `rotate_hook_token`, `items` |
 | `client.events` | `list(type=...)`, `retrieve` |
 | `client.usage` | `retrieve(from_=..., to=..., granularity=...)` |
-| `client.billing` | `retrieve`, `change_plan`; `.invoices`: `list` |
+| `client.billing` | `retrieve`, `checkout(plan= \| credit_cents=)`, `portal`, `update_settings`, `transactions`, `change_plan`; `.invoices`: `list` (monthly statements) |
 | `client.plans` | `list` |
 | `client.capabilities` | `retrieve` |
 | `client.status` | `retrieve` |
@@ -130,7 +130,7 @@ Every error derives from `transcdr.TranscdrError` and carries `.status`, `.type`
 |---|---|
 | `AuthenticationError` | 401 |
 | `PermissionDeniedError` | 403, e.g. code `insufficient_scope` |
-| `QuotaError` | 402 |
+| `QuotaError` | 402: `insufficient_credit`, `cost_limit_exceeded` or `spend_limit_reached` |
 | `InvalidRequestError` | 400 / 409 / 422 (`NotFoundError` for 404) |
 | `RateLimitError` | 429 (`.retry_after` seconds when known) |
 | `APIError` | 5xx |
@@ -146,6 +146,35 @@ try:
 except transcdr.InvalidRequestError as err:
     print(err.code, err.param, err.details, err.request_id)
 ```
+
+## Credit and spending
+
+Transcoding is paid from prepaid credit, per output minute: $0.005 SD, $0.010 HD and $0.025 UHD,
+whatever the codec. A job the account cannot pay for is refused before it starts with a
+`QuotaError` (402).
+
+```python
+billing = client.billing.retrieve()
+print(billing["account"]["available_usd"], billing["account"]["this_month"]["spent_usd"])
+
+# Cap a single job.
+client.jobs.create(input="ast_...", preset="hls-av1-abr", max_cost_cents=200)
+
+# Buy $50 of credit, or subscribe: send the customer to `url`.
+checkout = client.billing.checkout(credit_cents=5000)
+
+# A monthly limit and auto-recharge (needs a card saved by an earlier purchase).
+client.billing.update_settings(
+    monthly_limit_cents=50_000,
+    auto_recharge={"enabled": True, "threshold_cents": 1000, "amount_cents": 5000, "monthly_cap_cents": 20_000},
+)
+
+for entry in client.billing.transactions(limit=20):
+    print(entry["created_at"], entry["kind"], entry["amount_usd"])
+```
+
+`update_settings(monthly_limit_cents=None)` removes the monthly limit; leaving an argument out
+leaves that setting as it is.
 
 ## Retries and idempotency
 

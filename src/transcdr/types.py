@@ -64,8 +64,19 @@ __all__ = [
     "UsageTotals",
     "UsagePoint",
     "Usage",
+    "RateCard",
     "Plan",
+    "CreditBuckets",
+    "MonthSpend",
+    "AutoRecharge",
+    "Subscription",
+    "CreditAccount",
     "Billing",
+    "Checkout",
+    "Portal",
+    "CreditTransaction",
+    "StatementLine",
+    "Statement",
     "InvoiceLine",
     "Invoice",
     "Capabilities",
@@ -257,7 +268,10 @@ class JobError(TypedDict, total=False):
 
 class JobBilling(TypedDict, total=False):
     billable_minutes: float
+    #: Rounded up to the cent.
     amount_cents: int
+    #: Exact, in dollars (sub-cent).
+    amount_usd: float
     tier: Literal["sd", "hd", "uhd"]
 
 
@@ -557,7 +571,10 @@ class UsageTotals(TypedDict, total=False):
     billable_minutes: float
     input_minutes: float
     output_bytes: int
+    #: Rounded up to the cent.
     amount_cents: int
+    #: Exact, in dollars (sub-cent).
+    amount_usd: float
 
 
 class UsagePoint(TypedDict, total=False):
@@ -565,6 +582,7 @@ class UsagePoint(TypedDict, total=False):
     jobs: int
     billable_minutes: float
     amount_cents: int
+    amount_usd: float
 
 
 # ``from`` is a Python keyword, so Usage uses the functional syntax.
@@ -584,48 +602,163 @@ Usage = TypedDict(
 )
 
 
+class RateCard(TypedDict, total=False):
+    """Price per output minute in dollars; the same for every plan and codec."""
+
+    unit: Literal["output_minute"]
+    currency: str
+    sd: float
+    hd: float
+    uhd: float
+    #: What each tier covers, e.g. ``{"hd": "577p to 1440p"}``.
+    tiers: Dict[str, str]
+
+
 class Plan(TypedDict, total=False):
     object: Literal["plan"]
+    #: ``free`` | ``pay_as_you_go`` | ``starter`` | ``growth`` | ``scale`` | ``enterprise``.
     id: str
     name: str
-    price_cents: int
-    included_minutes: int
-    overage_cents_per_minute: Dict[str, float]
+    tagline: str
+    #: Bought as a monthly subscription through checkout.
+    subscription: bool
+    #: Monthly price; ``None`` means "contact us".
+    price_cents: Optional[int]
+    currency: str
+    #: Credit each period brings. Renews each period; does not roll over.
+    monthly_credit_cents: int
+    #: ``monthly_credit_cents / price_cents``; ``None`` without a monthly credit.
+    credit_value_ratio: Optional[float]
+    trial_credit_cents: int
+    trial_days: int
+    rates: RateCard
     max_concurrent_jobs: int
     max_resolution: int
+    max_input_bytes: int
     priority: bool
     retention_days: int
+    requests_per_minute: int
     features: List[str]
+
+
+class CreditBuckets(TypedDict, total=False):
+    #: This period's subscription credit. Does not roll over.
+    plan_usd: float
+    plan_expires_at: Optional[str]
+    #: Bought credit. Never expires.
+    purchased_usd: float
+    #: Trial and promotional credit.
+    promo_usd: float
+    promo_expires_at: Optional[str]
+
+
+class MonthSpend(TypedDict, total=False):
+    period: str
+    spent_usd: float
+    auto_recharged_usd: float
+
+
+class AutoRecharge(TypedDict, total=False):
+    enabled: bool
+    threshold_cents: int
+    amount_cents: int
+    monthly_cap_cents: Optional[int]
+    pending: bool
+    last_error: Optional[str]
+
+
+class Subscription(TypedDict, total=False):
+    status: Optional[str]
+    current_period_end: Optional[str]
+    cancel_at_period_end: bool
+
+
+class CreditAccount(TypedDict, total=False):
+    mode: Literal["prepaid", "invoiced"]
+    #: What new jobs can spend: the balance minus credit reserved for running jobs.
+    available_usd: float
+    balance_usd: float
+    reserved_usd: float
+    credit: CreditBuckets
+    this_month: MonthSpend
+    monthly_limit_cents: Optional[int]
+    auto_recharge: AutoRecharge
+    subscription: Optional[Subscription]
+    #: A label for the saved card, e.g. ``"Visa •••• 4242"``.
+    payment_method: Optional[str]
 
 
 class Billing(TypedDict, total=False):
     object: Literal["billing"]
     plan: Plan
+    rates: RateCard
+    account: CreditAccount
+    period: str
     period_start: str
     period_end: str
     usage_minutes: float
-    included_minutes: int
-    overage_minutes: float
-    estimated_total_cents: int
-    payment_method: Optional[Dict[str, Any]]
+    usage_usd: float
+    currency: str
+    #: ``False`` when this installation takes no payments (credit is granted by the operator).
+    payments_enabled: bool
 
 
-class InvoiceLine(TypedDict, total=False):
-    description: str
-    quantity: float
-    unit_amount_cents: float
-    amount_cents: int
+class Checkout(TypedDict, total=False):
+    object: Literal["checkout"]
+    #: Send the customer here to pay; ``None`` when nothing needs paying.
+    url: Optional[str]
+    #: An existing subscription moved plan in place.
+    changed: bool
+    plan: str
 
 
-class Invoice(TypedDict, total=False):
-    object: Literal["invoice"]
+class Portal(TypedDict, total=False):
+    object: Literal["portal"]
+    url: str
+
+
+class CreditTransaction(TypedDict, total=False):
+    object: Literal["credit_transaction"]
     id: str
+    #: ``trial`` | ``subscription`` | ``purchase`` | ``auto_recharge`` | ``usage`` | ``adjustment`` | ``expiry``.
+    kind: str
+    #: ``promo`` | ``plan`` | ``purchased``; ``mixed`` for usage spanning buckets.
+    bucket: str
+    #: Positive adds credit, negative spends it.
+    amount_usd: float
+    description: str
+    job_id: Optional[str]
+    created_at: str
+
+
+class StatementLine(TypedDict, total=False):
+    description: str
+    kind: str
+    #: Positive adds credit, negative spends it.
+    credit_usd: float
+    date: str
+    quantity: float
+    unit: Literal["output_minute"]
+
+
+class Statement(TypedDict, total=False):
+    """A monthly statement: credit added and the usage drawn from it."""
+
+    object: Literal["statement"]
+    id: str
+    period: str
     period_start: str
     period_end: str
-    status: Literal["draft", "open", "paid"]
-    lines: List[InvoiceLine]
-    total_cents: int
+    status: Literal["open", "closed"]
+    lines: List[StatementLine]
+    usage_minutes: float
+    usage_cents: int
     currency: str
+
+
+#: Monthly statements replaced invoices; kept for compatibility.
+Invoice = Statement
+InvoiceLine = StatementLine
 
 
 # --------------------------------------------------------------------------

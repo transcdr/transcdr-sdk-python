@@ -2,11 +2,24 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Optional, Union, cast
+from typing import Any, Dict, Mapping, Optional, Union, cast
 
 from .._base_client import path_segment as seg
 from ..pagination import AsyncPage, SyncPage
-from ..types import Billing, Capabilities, Event, Invoice, Job, Plan, Stats, Status, Usage
+from ..types import (
+    Billing,
+    Capabilities,
+    Checkout,
+    CreditTransaction,
+    Event,
+    Job,
+    Plan,
+    Portal,
+    Statement,
+    Stats,
+    Status,
+    Usage,
+)
 from ._base import AsyncResource, SyncResource, coerce_input
 
 __all__ = [
@@ -32,6 +45,31 @@ __all__ = [
 
 # ``?wait=true`` blocks up to 60 s server-side.
 _PROBE_WAIT_TIMEOUT = 90.0
+
+
+class _NotGiven:
+    """Distinguishes "leave unchanged" from ``None`` (which clears a limit)."""
+
+    def __repr__(self) -> str:
+        return "NOT_GIVEN"
+
+
+NOT_GIVEN: Any = _NotGiven()
+
+
+def _checkout_body(plan: Optional[str], credit_cents: Optional[int]) -> Dict[str, Any]:
+    if (plan is None) == (credit_cents is None):
+        raise ValueError("pass exactly one of plan or credit_cents")
+    return {"plan": plan} if plan is not None else {"credit_cents": credit_cents}
+
+
+def _settings_body(monthly_limit_cents: Any, auto_recharge: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
+    body: Dict[str, Any] = {}
+    if monthly_limit_cents is not NOT_GIVEN:
+        body["monthly_limit_cents"] = monthly_limit_cents
+    if auto_recharge is not None:
+        body["auto_recharge"] = dict(auto_recharge)
+    return body
 
 
 def _probe_timeout(client_timeout: Any, wait: bool) -> Any:
@@ -91,7 +129,9 @@ class UsageResource(SyncResource):
 
 
 class Invoices(SyncResource):
-    def list(self, *, limit: Optional[int] = None, cursor: Optional[str] = None) -> SyncPage[Invoice]:
+    """Monthly statements: credit added and the usage drawn from it."""
+
+    def list(self, *, limit: Optional[int] = None, cursor: Optional[str] = None) -> SyncPage[Statement]:
         return self._client.get_page("/v1/billing/invoices", {"limit": limit, "cursor": cursor})
 
 
@@ -101,10 +141,45 @@ class BillingResource(SyncResource):
         self.invoices = Invoices(client)
 
     def retrieve(self) -> Billing:
+        """The plan, credit balance, spending controls and this month's usage."""
         return cast(Billing, self._client.request("GET", "/v1/billing"))
 
+    def checkout(self, *, plan: Optional[str] = None, credit_cents: Optional[int] = None) -> Checkout:
+        """Subscribe (``plan="growth"``) or buy credit (``credit_cents=5000``,
+        $10 to $10,000). Redirect the customer to ``url`` when it is not
+        ``None``; an existing subscription changes plan in place
+        (``changed=True``). Owner only."""
+        return cast(
+            Checkout, self._client.request("POST", "/v1/billing/checkout", json=_checkout_body(plan, credit_cents))
+        )
+
+    def portal(self) -> Portal:
+        """A link to the payment portal: cards, receipts, cancelling. Owner only."""
+        return cast(Portal, self._client.request("POST", "/v1/billing/portal", json={}))
+
+    def update_settings(
+        self,
+        *,
+        monthly_limit_cents: Any = NOT_GIVEN,
+        auto_recharge: Optional[Mapping[str, Any]] = None,
+    ) -> Billing:
+        """Spending controls (owner only). ``monthly_limit_cents=None`` clears
+        the limit; ``auto_recharge={"enabled": True, "threshold_cents": 1000,
+        "amount_cents": 5000, "monthly_cap_cents": 20000}``."""
+        return cast(
+            Billing,
+            self._client.request(
+                "PUT", "/v1/billing/settings", json=_settings_body(monthly_limit_cents, auto_recharge)
+            ),
+        )
+
+    def transactions(self, *, limit: Optional[int] = None) -> SyncPage[CreditTransaction]:
+        """The credit ledger, newest first (``limit`` 1 to 200, default 50)."""
+        return self._client.get_page("/v1/billing/transactions", {"limit": limit})
+
     def change_plan(self, plan: str) -> Billing:
-        """Switch plan (owner only): ``free`` | ``starter`` | ``pro`` | ``enterprise``."""
+        """Move an existing subscription to ``starter`` | ``growth`` | ``scale``
+        (owner only). A first subscription goes through :meth:`checkout`."""
         return cast(Billing, self._client.request("PUT", "/v1/billing/plan", json={"plan": plan}))
 
 
@@ -175,7 +250,7 @@ class AsyncUsageResource(AsyncResource):
 class AsyncInvoices(AsyncResource):
     async def list(
         self, *, limit: Optional[int] = None, cursor: Optional[str] = None
-    ) -> AsyncPage[Invoice]:
+    ) -> AsyncPage[Statement]:
         return await self._client.get_page(
             "/v1/billing/invoices", {"limit": limit, "cursor": cursor}
         )
@@ -188,6 +263,31 @@ class AsyncBillingResource(AsyncResource):
 
     async def retrieve(self) -> Billing:
         return cast(Billing, await self._client.request("GET", "/v1/billing"))
+
+    async def checkout(self, *, plan: Optional[str] = None, credit_cents: Optional[int] = None) -> Checkout:
+        return cast(
+            Checkout,
+            await self._client.request("POST", "/v1/billing/checkout", json=_checkout_body(plan, credit_cents)),
+        )
+
+    async def portal(self) -> Portal:
+        return cast(Portal, await self._client.request("POST", "/v1/billing/portal", json={}))
+
+    async def update_settings(
+        self,
+        *,
+        monthly_limit_cents: Any = NOT_GIVEN,
+        auto_recharge: Optional[Mapping[str, Any]] = None,
+    ) -> Billing:
+        return cast(
+            Billing,
+            await self._client.request(
+                "PUT", "/v1/billing/settings", json=_settings_body(monthly_limit_cents, auto_recharge)
+            ),
+        )
+
+    async def transactions(self, *, limit: Optional[int] = None) -> AsyncPage[CreditTransaction]:
+        return await self._client.get_page("/v1/billing/transactions", {"limit": limit})
 
     async def change_plan(self, plan: str) -> Billing:
         return cast(

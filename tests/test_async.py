@@ -116,3 +116,17 @@ async def test_async_stats(make_async_client):
     stats = await make_async_client(rec).stats.retrieve()
     assert rec.requests[0].url.path == "/v1/stats"
     assert stats["totals"]["jobs_completed"] == 5
+
+
+async def test_async_billing_checkout_and_settings(make_async_client):
+    rec = AsyncRecorder(
+        json_response(200, {"object": "checkout", "url": None, "changed": True, "plan": "scale"}),
+        json_response(200, {"object": "billing"}),
+    )
+    client = make_async_client(rec)
+    checkout = await client.billing.checkout(plan="scale")
+    assert checkout["changed"] is True and checkout["url"] is None
+    await client.billing.update_settings(monthly_limit_cents=50000)
+    assert rec.json(0) == {"plan": "scale"}
+    assert rec.json(1) == {"monthly_limit_cents": 50000}
+    await client.close()

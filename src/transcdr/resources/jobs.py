@@ -33,6 +33,7 @@ def _create_body(
     metadata: Optional[Dict[str, str]],
     webhook_url: Optional[str],
     destination: Optional[Destination],
+    max_cost_cents: Optional[int] = None,
 ) -> Dict[str, Any]:
     return strip_none(
         {
@@ -43,6 +44,7 @@ def _create_body(
             "metadata": metadata,
             "webhook_url": webhook_url,
             "destination": destination,
+            "max_cost_cents": max_cost_cents,
         }
     )
 
@@ -86,6 +88,7 @@ class Jobs(SyncResource):
         metadata: Optional[Dict[str, str]] = None,
         webhook_url: Optional[str] = None,
         destination: Optional[Destination] = None,
+        max_cost_cents: Optional[int] = None,
         idempotency_key: Optional[str] = None,
     ) -> Job:
         """Queue a transcode.
@@ -94,10 +97,12 @@ class Jobs(SyncResource):
         "asset_id": ...}``, ``{"type": "connection", "connection_id": ...,
         "path": ...}``, or simply a URL string or ``ast_`` id. ``output``
         fields override the preset's. ``destination={"connection_id": ...,
-        "prefix": "out/{job_id}/"}`` delivers every output file on completion. An ``Idempotency-Key`` is generated when
-        not given, so retries never create duplicate jobs.
+        "prefix": "out/{job_id}/"}`` delivers every output file on completion.
+        ``max_cost_cents`` caps what the job may cost: above it the job is
+        refused with ``cost_limit_exceeded``. An ``Idempotency-Key`` is
+        generated when not given, so retries never create duplicate jobs.
         """
-        body = _create_body(input, preset, output, priority, metadata, webhook_url, destination)
+        body = _create_body(input, preset, output, priority, metadata, webhook_url, destination, max_cost_cents)
         return cast(
             Job,
             self._client.request(
@@ -213,9 +218,10 @@ class AsyncJobs(AsyncResource):
         metadata: Optional[Dict[str, str]] = None,
         webhook_url: Optional[str] = None,
         destination: Optional[Destination] = None,
+        max_cost_cents: Optional[int] = None,
         idempotency_key: Optional[str] = None,
     ) -> Job:
-        body = _create_body(input, preset, output, priority, metadata, webhook_url, destination)
+        body = _create_body(input, preset, output, priority, metadata, webhook_url, destination, max_cost_cents)
         return cast(
             Job,
             await self._client.request(

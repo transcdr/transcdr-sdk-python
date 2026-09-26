@@ -514,7 +514,7 @@ def test_misc_routes(make_client):
     )
     client = make_client(rec)
     client.usage.retrieve(from_="2026-09-01", to="2026-09-30", granularity="day")
-    client.billing.change_plan("pro")
+    client.billing.change_plan("growth")
     client.billing.invoices.list()
     client.organization.members.update("usr_1", role="admin")
     client.webhooks.redeliver("whd_1")
@@ -525,8 +525,72 @@ def test_misc_routes(make_client):
         ("PATCH", "/v1/organization/members/usr_1"),
         ("POST", "/v1/webhook-deliveries/whd_1/redeliver"),
     ]
-    assert rec.json(1) == {"plan": "pro"}
+    assert rec.json(1) == {"plan": "growth"}
     assert rec.json(3) == {"role": "admin"}
+
+
+
+def test_billing_checkout_portal_settings_and_ledger(make_client):
+    rec = Recorder(
+        json_response(200, {"object": "checkout", "url": "https://pay.test/s", "changed": False}),
+        json_response(200, {"object": "checkout", "url": "https://pay.test/c", "changed": False}),
+        json_response(200, {"object": "portal", "url": "https://pay.test/p"}),
+        json_response(200, {"object": "billing", "account": {"available_usd": 12.5}}),
+        json_response(200, {"object": "billing"}),
+        json_response(
+            200,
+            {
+                "object": "list",
+                "data": [{"object": "credit_transaction", "id": "ctx_1", "kind": "usage", "amount_usd": -0.25}],
+                "has_more": False,
+                "next_cursor": None,
+            },
+        ),
+    )
+    client = make_client(rec)
+    assert client.billing.checkout(plan="growth")["url"] == "https://pay.test/s"
+    assert client.billing.checkout(credit_cents=5000)["url"] == "https://pay.test/c"
+    assert client.billing.portal()["url"] == "https://pay.test/p"
+    summary = client.billing.update_settings(
+        monthly_limit_cents=None, auto_recharge={"enabled": True, "threshold_cents": 1000, "amount_cents": 5000}
+    )
+    assert summary["account"]["available_usd"] == 12.5
+    client.billing.update_settings(auto_recharge={"enabled": False})
+    ledger = client.billing.transactions(limit=10)
+    assert ledger.data[0]["amount_usd"] == -0.25
+    assert [(r.method, r.url.path) for r in rec.requests] == [
+        ("POST", "/v1/billing/checkout"),
+        ("POST", "/v1/billing/checkout"),
+        ("POST", "/v1/billing/portal"),
+        ("PUT", "/v1/billing/settings"),
+        ("PUT", "/v1/billing/settings"),
+        ("GET", "/v1/billing/transactions"),
+    ]
+    assert rec.json(0) == {"plan": "growth"}
+    assert rec.json(1) == {"credit_cents": 5000}
+    # ``None`` clears the limit; leaving it out leaves it alone.
+    assert rec.json(3) == {
+        "monthly_limit_cents": None,
+        "auto_recharge": {"enabled": True, "threshold_cents": 1000, "amount_cents": 5000},
+    }
+    assert rec.json(4) == {"auto_recharge": {"enabled": False}}
+    assert query(rec.requests[5]) == [("limit", "10")]
+
+
+def test_billing_checkout_needs_exactly_one_of_plan_or_credit(make_client):
+    client = make_client(Recorder())
+    with pytest.raises(ValueError):
+        client.billing.checkout()
+    with pytest.raises(ValueError):
+        client.billing.checkout(plan="growth", credit_cents=5000)
+
+
+def test_job_cost_cap_and_credit_errors(make_client):
+    rec = Recorder(json_response(402, error_body("quota_error", "insufficient_credit", "Not enough credit.")))
+    with pytest.raises(QuotaError) as info:
+        make_client(rec).jobs.create(input="ast_1", max_cost_cents=150)
+    assert info.value.code == "insufficient_credit"
+    assert rec.json(0)["max_cost_cents"] == 150
 
 
 STATS = {
