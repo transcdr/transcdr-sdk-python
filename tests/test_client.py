@@ -527,3 +527,40 @@ def test_misc_routes(make_client):
     ]
     assert rec.json(1) == {"plan": "pro"}
     assert rec.json(3) == {"role": "admin"}
+
+
+STATS = {
+    "object": "stats",
+    "since": "2026-01-01T00:00:00Z",
+    "updated_at": "2026-09-26T12:00:00Z",
+    "totals": {
+        "jobs_completed": 1200,
+        "output_minutes": 83421.5,
+        "source_minutes": 30110.0,
+        "bytes_delivered": 987654321,
+        "renditions_delivered": 4800,
+        "customers": 57,
+    },
+    "last_24h": {"jobs_completed": 42, "output_minutes": 310.2},
+    "daily": [{"date": "2026-09-25", "jobs_completed": 40, "output_minutes": 300.0}],
+}
+
+
+def test_stats_retrieve(make_client, monkeypatch):
+    monkeypatch.delenv("TRANSCDR_API_KEY", raising=False)
+    rec = Recorder(json_response(200, STATS))
+    stats = make_client(rec, api_key=None).stats.retrieve()
+    assert (rec.requests[0].method, rec.requests[0].url.path) == ("GET", "/v1/stats")
+    assert "Authorization" not in rec.requests[0].headers  # public endpoint
+    assert stats["object"] == "stats"
+    assert stats["totals"]["customers"] == 57
+    assert stats["last_24h"]["jobs_completed"] == 42
+    assert stats["daily"][0]["date"] == "2026-09-25"
+
+
+def test_status_retrieve(make_client):
+    body = {"object": "status", "status": "operational", "queue_depth": 3, "running_jobs": 2, "version": "1.4.0"}
+    rec = Recorder(json_response(200, body))
+    status = make_client(rec).status.retrieve()
+    assert rec.requests[0].url.path == "/v1/status"
+    assert status["version"] == "1.4.0"

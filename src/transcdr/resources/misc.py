@@ -1,4 +1,4 @@
-"""Probe, events, usage, billing, plans, capabilities and status."""
+"""Probe, events, usage, billing, plans, capabilities, status and stats."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from typing import Any, Mapping, Optional, Union, cast
 
 from .._base_client import path_segment as seg
 from ..pagination import AsyncPage, SyncPage
-from ..types import Billing, Capabilities, Event, Invoice, Job, Plan, Status, Usage
+from ..types import Billing, Capabilities, Event, Invoice, Job, Plan, Stats, Status, Usage
 from ._base import AsyncResource, SyncResource, coerce_input
 
 __all__ = [
@@ -18,6 +18,7 @@ __all__ = [
     "Plans",
     "CapabilitiesResource",
     "StatusResource",
+    "StatsResource",
     "AsyncProbe",
     "AsyncEvents",
     "AsyncUsageResource",
@@ -26,6 +27,7 @@ __all__ = [
     "AsyncPlans",
     "AsyncCapabilitiesResource",
     "AsyncStatusResource",
+    "AsyncStatsResource",
 ]
 
 # ``?wait=true`` blocks up to 60 s server-side.
@@ -121,6 +123,12 @@ class StatusResource(SyncResource):
         return cast(Status, self._client.request("GET", "/v1/status"))
 
 
+class StatsResource(SyncResource):
+    def retrieve(self) -> Stats:
+        """Public platform statistics: totals, the last 24 h and a daily series."""
+        return cast(Stats, self._client.request("GET", "/v1/stats"))
+
+
 # --------------------------------------------------------------------------
 # Async
 # --------------------------------------------------------------------------
@@ -200,3 +208,8 @@ class AsyncCapabilitiesResource(AsyncResource):
 class AsyncStatusResource(AsyncResource):
     async def retrieve(self) -> Status:
         return cast(Status, await self._client.request("GET", "/v1/status"))
+
+
+class AsyncStatsResource(AsyncResource):
+    async def retrieve(self) -> Stats:
+        return cast(Stats, await self._client.request("GET", "/v1/stats"))

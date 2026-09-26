@@ -108,3 +108,11 @@ async def test_async_wait(make_async_client, monkeypatch):
     job = await client.jobs.wait("job_1", poll_interval=0.01, on_progress=on_progress)
     assert job["status"] == "completed"
     assert seen == ["running", "completed"]
+
+
+async def test_async_stats(make_async_client):
+    body = {"object": "stats", "totals": {"jobs_completed": 5}, "last_24h": {}, "daily": []}
+    rec = AsyncRecorder(json_response(200, body))
+    stats = await make_async_client(rec).stats.retrieve()
+    assert rec.requests[0].url.path == "/v1/stats"
+    assert stats["totals"]["jobs_completed"] == 5

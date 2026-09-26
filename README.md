@@ -8,6 +8,7 @@ AV1, H.264 and H.265 transcodes, MP4 renditions and CMAF/HLS ABR ladders.
 - Cursor pagination with `auto_paging_iter()`
 - Automatic retries with exponential backoff and jitter, made safe by idempotency keys
 - One-call file uploads and job polling
+- Storage connections (S3, R2, B2, MinIO, GCS, Azure, FTP/FTPS, SFTP, HTTP, WebDAV), deliveries and automations
 - Webhook signature verification
 
 Requires Python 3.9+. The only dependency is [`httpx`](https://www.python-httpx.org/).
@@ -89,16 +90,20 @@ asyncio.run(main())
 | `client.api_keys` | `list`, `create`, `delete` (`revoke`) |
 | `client.uploads` | `create`, `complete`, `upload_file` |
 | `client.assets` | `list`, `create` (import by URL), `retrieve`, `delete`, `download_url` |
-| `client.jobs` | `create`, `list`, `retrieve`, `cancel`, `retry`, `delete`, `events`, `outputs`, `output_url`, `file_url`, `wait` |
+| `client.jobs` | `create`, `list`, `retrieve`, `cancel`, `retry`, `delete`, `events`, `outputs`, `output_url`, `file_url`, `deliveries`, `deliver`, `wait` |
+| `client.deliveries` | `retry` |
 | `client.probe` | `create(input=..., wait=True)` |
 | `client.presets` | `list`, `create`, `retrieve`, `update`, `delete` |
 | `client.webhooks` | `list`, `create`, `retrieve`, `update`, `delete`, `rotate_secret`, `test`, `deliveries`, `redeliver`, `verify_signature`, `construct_event` |
+| `client.connections` | `list`, `create`, `retrieve`, `update`, `delete`, `test`, `browse` |
+| `client.automations` | `list`, `create`, `retrieve`, `update`, `delete`, `run`, `trigger`, `rotate_hook_token`, `items` |
 | `client.events` | `list(type=...)`, `retrieve` |
 | `client.usage` | `retrieve(from_=..., to=..., granularity=...)` |
 | `client.billing` | `retrieve`, `change_plan`; `.invoices`: `list` |
 | `client.plans` | `list` |
 | `client.capabilities` | `retrieve` |
 | `client.status` | `retrieve` |
+| `client.stats` | `retrieve` (public platform statistics) |
 
 Anything not wrapped yet: `client.request("GET", "/v1/openapi.json")`.
 
@@ -219,6 +224,204 @@ async def transcdr_webhook(request: Request, transcdr_signature: str = Header(No
 
 Respond with a 2xx quickly; failed deliveries are retried after 1 m, 5 m, 30 m, 2 h, 6 h and 12 h.
 Use `transcdr.webhooks.sign_payload(body, secret)` to build valid headers in your own tests.
+
+## Integrations: connections, deliveries and automations
+
+Available on the Starter plan and above. A **connection** is your own storage: jobs can read
+inputs from it and deliver outputs to it. Connections are checked before they are saved and on
+every update; a failing check raises `InvalidRequestError`. Secret values are write-only (the API
+returns only their names in `secrets_set`). On `update`, `config` merges, an omitted secret is
+kept, and `""` clears it.
+
+### Connection examples by provider
+
+**Amazon S3**
+
+```python
+s3 = client.connections.create(
+    name="AWS ingest",
+    kind="s3",
+    config={"bucket": "my-videos", "region": "us-east-1", "root": "transcdr/"},
+    secrets={"access_key_id": "AKIA...", "secret_access_key": "..."},  # + optional "session_token"
+)
+```
+
+**Cloudflare R2**
+
+```python
+r2 = client.connections.create(
+    name="R2 outputs",
+    kind="s3",
+    config={
+        "bucket": "outputs",
+        "region": "auto",
+        "endpoint": "https://<account_id>.r2.cloudflarestorage.com",
+    },
+    secrets={"access_key_id": "...", "secret_access_key": "..."},
+)
+```
+
+**Backblaze B2** (S3-compatible API)
+
+```python
+b2 = client.connections.create(
+    name="B2 archive",
+    kind="s3",
+    config={
+        "bucket": "archive",
+        "region": "us-west-004",
+        "endpoint": "https://s3.us-west-004.backblazeb2.com",
+    },
+    secrets={"access_key_id": "<keyID>", "secret_access_key": "<applicationKey>"},
+)
+```
+
+**MinIO** (and other self-hosted S3; usually needs path-style addressing)
+
+```python
+minio = client.connections.create(
+    name="MinIO",
+    kind="s3",
+    config={
+        "bucket": "media",
+        "region": "us-east-1",
+        "endpoint": "https://minio.example.com",
+        "path_style": True,
+    },
+    secrets={"access_key_id": "...", "secret_access_key": "..."},
+)
+```
+
+**Google Cloud Storage**
+
+```python
+gcs = client.connections.create(
+    name="GCS",
+    kind="gcs",
+    config={"bucket": "my-gcs-bucket", "root": "videos/"},
+    secrets={"service_account_json": open("service-account.json").read()},
+)
+```
+
+**Azure Blob Storage** (`bucket` is the container name)
+
+```python
+azure = client.connections.create(
+    name="Azure",
+    kind="azure_blob",
+    config={"account": "mystorageacct", "bucket": "videos"},
+    secrets={"account_key": "..."},  # or {"sas_token": "sv=..."}
+)
+```
+
+**FTP / FTPS**
+
+```python
+ftp = client.connections.create(
+    name="Broadcaster FTPS",
+    kind="ftps",  # or "ftp"
+    config={"host": "ftp.example.com", "port": 21, "username": "uploader", "root": "/drop", "passive": True},
+    secrets={"password": "..."},
+)
+```
+
+**SFTP**
+
+```python
+sftp = client.connections.create(
+    name="SFTP",
+    kind="sftp",
+    config={
+        "host": "sftp.example.com",
+        "port": 22,
+        "username": "media",
+        "root": "/srv/media",
+        "host_key_fingerprint": "SHA256:...",
+    },
+    secrets={"private_key": open("id_ed25519").read()},  # or {"password": "..."}; + "private_key_passphrase"
+)
+```
+
+**HTTP** (read-only: a source, never a destination)
+
+```python
+http = client.connections.create(
+    name="Origin",
+    kind="http",
+    config={"endpoint": "https://media.example.com/", "username": "reader"},
+    secrets={"password": "..."},  # basic auth; or {"bearer_token": "..."}
+)
+```
+
+**WebDAV**
+
+```python
+dav = client.connections.create(
+    name="Nextcloud",
+    kind="webdav",
+    config={"endpoint": "https://cloud.example.com/remote.php/dav/files/me/", "username": "me", "root": "Videos/"},
+    secrets={"password": "<app password>"},  # or {"bearer_token": "..."}
+)
+```
+
+Check or explore a connection:
+
+```python
+result = client.connections.test(s3["id"])          # {"ok": ..., "error": ..., "connection": ...}
+for obj in client.connections.browse(s3["id"], prefix="incoming/", recursive=True).auto_paging_iter():
+    print(obj["path"], obj["size"], obj["last_modified"])
+```
+
+### Jobs that read from and deliver to connections
+
+```python
+job = client.jobs.create(
+    input={"type": "connection", "connection_id": s3["id"], "path": "incoming/talk.mov"},
+    preset="hls-av1-abr",
+    destination={"connection_id": r2["id"], "prefix": "out/{job_id}/"},  # the whole HLS tree is delivered
+)
+
+client.jobs.deliveries(job["id"]).data                                 # delivery status per destination
+client.jobs.deliver(job["id"], connection_id=b2["id"], prefix="archive/{job_id}/")  # deliver (again)
+client.deliveries.retry("dlv_...")                                     # retry a failed delivery now
+```
+
+Object stores and HTTP inputs are read directly through a signed URL; FTP, SFTP and
+WebDAV inputs are copied in first. Deliveries retry on the webhook schedule and emit
+`job.delivered` / `job.delivery_failed` events.
+
+### Automations
+
+"When a file lands in a connection, transcode it like this, deliver it there." Each object
+version is processed exactly once.
+
+```python
+automation = client.automations.create(
+    name="Ingest -> HLS",
+    trigger="watch",                      # poll the source; or "hook" for push notifications
+    source={"connection_id": s3["id"], "prefix": "incoming/", "pattern": "**/*.{mp4,mov}"},
+    poll_interval_seconds=300,            # list the source every 5 minutes
+    settle_seconds=60,                    # only take files unchanged for a minute
+    preset="hls-av1-abr",
+    output={"quality": {"target": "high"}},
+    destination={"connection_id": r2["id"], "prefix": "{automation}/{date}/{stem}/"},
+    after_success="delete",               # remove the source file once delivered ("keep" is the default)
+    metadata={"pipeline": "ingest"},
+)
+
+client.automations.run(automation["id"])                              # poll now -> {"jobs_created": n}
+client.automations.trigger(automation["id"], path="incoming/late.mov")  # -> {"jobs_created", "job_ids"}
+for item in client.automations.items(automation["id"]).auto_paging_iter():
+    print(item["path"], item["status"], item["job_id"], item["error"])
+client.automations.update(automation["id"], enabled=False)
+```
+
+Destination prefix templates: `{job_id}`, `{name}`, `{stem}`, `{ext}`, `{dir}`, `{date}`,
+`{automation}`, `{org}`.
+
+With `trigger="hook"`, point bucket notifications (S3/R2/MinIO, directly or via SNS, or GCS) or
+your own system at the automation's `hook_url`, e.g. `POST {"path": "incoming/a.mp4"}` or
+`{"paths": [...]}`. `client.automations.rotate_hook_token(id)` issues a new `hook_url`.
 
 ## Test mode
 

@@ -14,13 +14,16 @@ from ._base_client import (
 from .resources.api_keys import ApiKeys, AsyncApiKeys
 from .resources.assets import Assets, AsyncAssets
 from .resources.auth import AsyncAuth, Auth
-from .resources.jobs import AsyncJobs, Jobs
+from .resources.automations import AsyncAutomations, Automations
+from .resources.connections import AsyncConnections, Connections
+from .resources.jobs import AsyncDeliveries, AsyncJobs, Deliveries, Jobs
 from .resources.misc import (
     AsyncBillingResource,
     AsyncCapabilitiesResource,
     AsyncEvents,
     AsyncPlans,
     AsyncProbe,
+    AsyncStatsResource,
     AsyncStatusResource,
     AsyncUsageResource,
     BillingResource,
@@ -28,6 +31,7 @@ from .resources.misc import (
     Events,
     Plans,
     Probe,
+    StatsResource,
     StatusResource,
     UsageResource,
 )
@@ -79,15 +83,19 @@ class Transcdr(SyncAPIClient):
         self.uploads = Uploads(self)
         self.assets = Assets(self)
         self.jobs = Jobs(self)
+        self.deliveries = Deliveries(self)
         self.probe = Probe(self)
         self.presets = Presets(self)
         self.webhooks = Webhooks(self)
+        self.connections = Connections(self)
+        self.automations = Automations(self)
         self.events = Events(self)
         self.usage = UsageResource(self)
         self.billing = BillingResource(self)
         self.plans = Plans(self)
         self.capabilities = CapabilitiesResource(self)
         self.status = StatusResource(self)
+        self.stats = StatsResource(self)
 
     def with_options(
         self,
@@ -146,15 +154,19 @@ class AsyncTranscdr(AsyncAPIClient):
         self.uploads = AsyncUploads(self)
         self.assets = AsyncAssets(self)
         self.jobs = AsyncJobs(self)
+        self.deliveries = AsyncDeliveries(self)
         self.probe = AsyncProbe(self)
         self.presets = AsyncPresets(self)
         self.webhooks = AsyncWebhooks(self)
+        self.connections = AsyncConnections(self)
+        self.automations = AsyncAutomations(self)
         self.events = AsyncEvents(self)
         self.usage = AsyncUsageResource(self)
         self.billing = AsyncBillingResource(self)
         self.plans = AsyncPlans(self)
         self.capabilities = AsyncCapabilitiesResource(self)
         self.status = AsyncStatusResource(self)
+        self.stats = AsyncStatsResource(self)
 
     def with_options(
         self,

@@ -37,6 +37,19 @@ __all__ = [
     "Job",
     "JobEvent",
     "SignedUrl",
+    "ConnectionInput",
+    "Destination",
+    "Delivery",
+    "ConnectionKind",
+    "ConnectionCapabilities",
+    "Connection",
+    "ConnectionTestResult",
+    "RemoteObject",
+    "AutomationSource",
+    "Automation",
+    "AutomationItem",
+    "AutomationRunResult",
+    "AutomationTriggerResult",
     "Asset",
     "Upload",
     "Preset",
@@ -57,6 +70,11 @@ __all__ = [
     "Invoice",
     "Capabilities",
     "Status",
+    "StatsTotals",
+    "StatsLast24h",
+    "StatsDay",
+    "StatsLast30d",
+    "Stats",
     "TERMINAL_JOB_STATUSES",
 ]
 
@@ -138,7 +156,38 @@ class AssetInput(TypedDict):
     asset_id: str
 
 
-JobInput = Union[UrlInput, AssetInput]
+class ConnectionInput(TypedDict):
+    """Read the input from one of your storage connections."""
+
+    type: Literal["connection"]
+    connection_id: str
+    path: str
+
+
+JobInput = Union[UrlInput, AssetInput, ConnectionInput]
+
+
+class Destination(TypedDict, total=False):
+    """Where to deliver a job's outputs. ``prefix`` may use templates such as
+    ``{job_id}``, ``{stem}``, ``{date}``."""
+
+    connection_id: str
+    prefix: str
+
+
+class Delivery(TypedDict, total=False):
+    object: Literal["delivery"]
+    id: str
+    connection_id: str
+    prefix: str
+    status: Literal["waiting", "pending", "running", "succeeded", "failed"]
+    files: int
+    bytes: int
+    attempts: int
+    error: Optional[str]
+    next_retry_at: Optional[str]
+    created_at: str
+    completed_at: Optional[str]
 
 
 class AudioStream(TypedDict, total=False):
@@ -201,6 +250,7 @@ class JobOutput(TypedDict, total=False):
 
 class JobError(TypedDict, total=False):
     code: str
+    #: Customer-safe description of what went wrong.
     message: str
     retryable: bool
 
@@ -229,6 +279,9 @@ class Job(TypedDict, total=False):
     error: Optional[JobError]
     metadata: Metadata
     webhook_url: Optional[str]
+    destination: Optional[Destination]
+    #: The latest delivery, on ``job.delivered`` / ``job.delivery_failed`` events.
+    delivery: Optional[Delivery]
     attempts: int
     max_attempts: int
     billing: Optional[JobBilling]
@@ -346,6 +399,99 @@ class Event(TypedDict, total=False):
     type: str
     created_at: str
     data: EventData
+
+
+# --------------------------------------------------------------------------
+# Integrations: connections & automations
+# --------------------------------------------------------------------------
+
+ConnectionKind = Literal["s3", "gcs", "azure_blob", "ftp", "ftps", "sftp", "http", "webdav"]
+
+
+class ConnectionCapabilities(TypedDict, total=False):
+    source: bool
+    destination: bool
+    watch: bool
+
+
+class Connection(TypedDict, total=False):
+    object: Literal["connection"]
+    id: str
+    name: str
+    kind: ConnectionKind
+    #: Non-secret settings (bucket, region, endpoint, host, root, …).
+    config: Dict[str, Any]
+    #: Names of the secrets that are set; secret values are write-only.
+    secrets_set: List[str]
+    capabilities: ConnectionCapabilities
+    status: Literal["untested", "ok", "error"]
+    last_error: Optional[str]
+    last_checked_at: Optional[str]
+    created_at: str
+    updated_at: str
+
+
+class ConnectionTestResult(TypedDict, total=False):
+    ok: bool
+    error: Optional[str]
+    connection: Connection
+
+
+class RemoteObject(TypedDict, total=False):
+    object: Literal["remote_object"]
+    path: str
+    size: Optional[int]
+    last_modified: Optional[str]
+
+
+class AutomationSource(TypedDict, total=False):
+    connection_id: str
+    prefix: str
+    #: Glob, e.g. ``"**/*.{mp4,mov}"``.
+    pattern: str
+
+
+class Automation(TypedDict, total=False):
+    object: Literal["automation"]
+    id: str
+    name: str
+    enabled: bool
+    trigger: Literal["watch", "hook"]
+    source: AutomationSource
+    poll_interval_seconds: int
+    settle_seconds: int
+    preset: Optional[str]
+    output: Optional[OutputSpec]
+    destination: Optional[Destination]
+    after_success: Literal["keep", "delete"]
+    priority: Literal["normal", "high"]
+    metadata: Metadata
+    webhook_url: Optional[str]
+    #: Push endpoint for ``trigger="hook"``; shown to ``automations:write`` holders.
+    hook_url: Optional[str]
+    jobs_created: int
+    last_polled_at: Optional[str]
+    last_triggered_at: Optional[str]
+    last_error: Optional[str]
+    created_at: str
+    updated_at: str
+
+
+class AutomationItem(TypedDict, total=False):
+    path: str
+    size_bytes: Optional[int]
+    status: str
+    job_id: Optional[str]
+    error: Optional[str]
+
+
+class AutomationRunResult(TypedDict, total=False):
+    jobs_created: int
+
+
+class AutomationTriggerResult(TypedDict, total=False):
+    jobs_created: int
+    job_ids: List[str]
 
 
 # --------------------------------------------------------------------------
@@ -497,6 +643,44 @@ class Capabilities(TypedDict, total=False):
 
 
 class Status(TypedDict, total=False):
+    object: Literal["status"]
     status: str
     queue_depth: int
     running_jobs: int
+    version: str
+
+
+class StatsTotals(TypedDict, total=False):
+    jobs_completed: int
+    output_minutes: float
+    source_minutes: float
+    bytes_delivered: int
+    renditions_delivered: int
+    customers: int
+
+
+class StatsLast24h(TypedDict, total=False):
+    jobs_completed: int
+    output_minutes: float
+
+
+class StatsDay(TypedDict, total=False):
+    date: str
+    jobs_completed: int
+    output_minutes: float
+
+
+class StatsLast30d(TypedDict, total=False):
+    active_customers: int
+
+
+class Stats(TypedDict, total=False):
+    """Public platform statistics (``GET /v1/stats``)."""
+
+    object: Literal["stats"]
+    since: str
+    updated_at: str
+    totals: StatsTotals
+    last_24h: StatsLast24h
+    last_30d: StatsLast30d
+    daily: List[StatsDay]
