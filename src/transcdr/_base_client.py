@@ -23,7 +23,7 @@ from ._errors import (
 from ._version import __version__
 from .pagination import AsyncPage, SyncPage
 
-DEFAULT_BASE_URL = "https://api.transcdr.io"
+DEFAULT_BASE_URL = "https://api.transcdr.com"
 DEFAULT_TIMEOUT = 60.0
 DEFAULT_MAX_RETRIES = 2
 INITIAL_RETRY_DELAY = 0.5

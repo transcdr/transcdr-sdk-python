@@ -1,6 +1,6 @@
 # Transcdr Python SDK
 
-The official Python client for the [Transcdr](https://transcdr.io) video-transcoding API:
+The official Python client for the [Transcdr](https://transcdr.com) video-transcoding API:
 AV1, H.264 and H.265 transcodes, MP4 renditions and CMAF/HLS ABR ladders.
 
 - Sync (`Transcdr`) and asyncio (`AsyncTranscdr`) clients with the same surface
@@ -463,7 +463,7 @@ local development; `client.livemode` tells you which kind of key a client holds.
 | Argument | Default |
 |---|---|
 | `api_key` | `$TRANSCDR_API_KEY` (a `tdk_live_`/`tdk_test_` key or a `tds_` session token) |
-| `base_url` | `$TRANSCDR_BASE_URL`, else `https://api.transcdr.io` (`http://localhost:8080` in development) |
+| `base_url` | `$TRANSCDR_BASE_URL`, else `https://api.transcdr.com` (`http://localhost:8080` in development) |
 | `timeout` | 60 s (float or `httpx.Timeout`) |
 | `max_retries` | 2 |
 | `default_headers` | extra headers on every request |

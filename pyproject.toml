@@ -29,8 +29,8 @@ dependencies = ["httpx>=0.23,<1"]
 dev = ["pytest>=7", "pytest-asyncio>=0.21"]
 
 [project.urls]
-Homepage = "https://transcdr.io"
-Documentation = "https://api.transcdr.io/v1/openapi.json"
+Homepage = "https://transcdr.com"
+Documentation = "https://api.transcdr.com/v1/openapi.json"
 
 [tool.hatch.version]
 path = "src/transcdr/_version.py"
