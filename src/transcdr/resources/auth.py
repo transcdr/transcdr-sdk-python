@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import cast
+from typing import Optional, cast
+
+from .._base_client import strip_none
 
 from ..types import AuthResponse, Me
 from ._base import AsyncResource, SyncResource
@@ -25,9 +27,22 @@ class Auth(SyncResource):
         }
         return cast(AuthResponse, self._client.request("POST", "/v1/auth/register", json=body))
 
-    def login(self, *, email: str, password: str) -> AuthResponse:
-        body = {"email": email, "password": password}
+    def login(
+        self, *, email: str, password: str, organization_id: Optional[str] = None
+    ) -> AuthResponse:
+        """Exchange an email and password for a session token. ``organization_id``
+        picks the organization; by default the one used last."""
+        body = strip_none({"email": email, "password": password, "organization_id": organization_id})
         return cast(AuthResponse, self._client.request("POST", "/v1/auth/login", json=body))
+
+    def switch(self, organization_id: str) -> AuthResponse:
+        """Issue a session token for another of the user's organizations
+        (session tokens only). The current token is revoked: set the new one
+        with ``client.api_key = resp["token"]``."""
+        return cast(
+            AuthResponse,
+            self._client.request("POST", "/v1/auth/switch", json={"organization_id": organization_id}),
+        )
 
     def logout(self) -> None:
         """Revoke the session token in use."""
@@ -39,7 +54,8 @@ class Auth(SyncResource):
         self._client.request("POST", "/v1/auth/password", json=body)
 
     def me(self) -> Me:
-        """The user (for session tokens), organization and scopes behind the credential."""
+        """The user (for session tokens), organization, the user's organizations
+        and the scopes behind the credential."""
         return cast(Me, self._client.request("GET", "/v1/me"))
 
 
@@ -55,9 +71,19 @@ class AsyncAuth(AsyncResource):
         }
         return cast(AuthResponse, await self._client.request("POST", "/v1/auth/register", json=body))
 
-    async def login(self, *, email: str, password: str) -> AuthResponse:
-        body = {"email": email, "password": password}
+    async def login(
+        self, *, email: str, password: str, organization_id: Optional[str] = None
+    ) -> AuthResponse:
+        body = strip_none({"email": email, "password": password, "organization_id": organization_id})
         return cast(AuthResponse, await self._client.request("POST", "/v1/auth/login", json=body))
+
+    async def switch(self, organization_id: str) -> AuthResponse:
+        return cast(
+            AuthResponse,
+            await self._client.request(
+                "POST", "/v1/auth/switch", json={"organization_id": organization_id}
+            ),
+        )
 
     async def logout(self) -> None:
         await self._client.request("POST", "/v1/auth/logout")

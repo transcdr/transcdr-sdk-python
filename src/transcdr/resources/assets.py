@@ -5,7 +5,7 @@ from typing import Dict, Optional, cast
 from .._base_client import path_segment as seg
 from .._base_client import strip_none
 from ..pagination import AsyncPage, SyncPage
-from ..types import Asset
+from ..types import Asset, SignedUrl
 from ._base import AsyncResource, SyncResource
 
 __all__ = ["Assets", "AsyncAssets"]
@@ -39,6 +39,13 @@ class Assets(SyncResource):
         resp = self._client.request("GET", f"/v1/assets/{seg(id)}/content")
         return cast(str, resp["url"])
 
+    def content_url(self, id: str) -> SignedUrl:
+        """A short-lived signed download URL for the original file, with its expiry."""
+        return cast(
+            SignedUrl,
+            self._client.request("GET", f"/v1/assets/{seg(id)}/content", params={"redirect": False}),
+        )
+
 
 class AsyncAssets(AsyncResource):
     async def list(
@@ -65,3 +72,11 @@ class AsyncAssets(AsyncResource):
     async def download_url(self, id: str) -> str:
         resp = await self._client.request("GET", f"/v1/assets/{seg(id)}/content")
         return cast(str, resp["url"])
+
+    async def content_url(self, id: str) -> SignedUrl:
+        return cast(
+            SignedUrl,
+            await self._client.request(
+                "GET", f"/v1/assets/{seg(id)}/content", params={"redirect": False}
+            ),
+        )

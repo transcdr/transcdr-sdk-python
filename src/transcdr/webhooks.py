@@ -9,6 +9,13 @@ Verify against the **raw** request body, before any JSON parsing::
     from transcdr.webhooks import construct_event
 
     event = construct_event(request.body, request.headers["Transcdr-Signature"], secret)
+
+Amazon SNS and SQS destinations carry the same signature in the
+``transcdr-signature`` message attribute, over ``"<t>.<message>"``::
+
+    from transcdr.webhooks import verify_sns_sqs_signature
+
+    ok = verify_sns_sqs_signature(record["body"], record["messageAttributes"], secret)
 """
 
 from __future__ import annotations
@@ -17,7 +24,7 @@ import hashlib
 import hmac
 import json
 import time
-from typing import List, Optional, Tuple, Union, cast
+from typing import Any, List, Mapping, Optional, Tuple, Union, cast
 
 from ._errors import SignatureVerificationError
 from .types import Event
@@ -30,9 +37,14 @@ __all__ = [
     "parse_signature_header",
     "verify_signature",
     "construct_event",
+    "SIGNATURE_ATTRIBUTE",
+    "signature_from_attributes",
+    "verify_sns_sqs_signature",
 ]
 
 SIGNATURE_HEADER = "Transcdr-Signature"
+#: The message attribute carrying the signature on SNS and SQS deliveries.
+SIGNATURE_ATTRIBUTE = "transcdr-signature"
 DEFAULT_TOLERANCE = 300
 
 Payload = Union[bytes, bytearray, memoryview, str]
@@ -141,3 +153,56 @@ def construct_event(
             "Webhook payload is not a JSON object.", header=header, payload=payload
         )
     return cast(Event, event)
+
+
+# --------------------------------------------------------------------------
+# Amazon SNS / SQS destinations
+# --------------------------------------------------------------------------
+
+
+def _attribute_value(value: Any) -> Optional[str]:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, Mapping):
+        for key in ("StringValue", "stringValue", "Value"):
+            found = value.get(key)
+            if isinstance(found, str):
+                return found
+    return None
+
+
+def signature_from_attributes(attributes: Any) -> Optional[str]:
+    """Read the ``transcdr-signature`` value out of an SNS or SQS
+    message-attribute map in any AWS shape: SQS ``ReceiveMessage`` and boto3
+    (``StringValue``), Lambda SQS events (``stringValue``), SNS notification
+    JSON (``Value``), a plain string value, or the attribute value itself."""
+    if attributes is None:
+        return None
+    if isinstance(attributes, str):
+        return attributes
+    if not isinstance(attributes, Mapping):
+        return None
+    for key, value in attributes.items():
+        if isinstance(key, str) and key.lower() == SIGNATURE_ATTRIBUTE:
+            return _attribute_value(value)
+    return None
+
+
+def verify_sns_sqs_signature(
+    message: Payload,
+    attributes: Any,
+    secret: str,
+    tolerance: Optional[int] = DEFAULT_TOLERANCE,
+    *,
+    now: Optional[float] = None,
+) -> bool:
+    """Verify an Amazon SNS or SQS delivery: the ``transcdr-signature``
+    attribute is ``t=<unix>,v1=<hmac>`` over ``"<t>.<message>"``.
+
+    ``message`` is the SNS ``Message`` or the SQS body (Lambda:
+    ``record["body"]``) exactly as received; ``attributes`` is the
+    message-attribute map in any AWS shape, or the attribute value itself.
+    With raw message delivery off, an SNS to SQS subscription wraps the
+    notification: parse the body and pass its ``Message`` and
+    ``MessageAttributes`` instead."""
+    return verify_signature(message, signature_from_attributes(attributes), secret, tolerance, now=now)

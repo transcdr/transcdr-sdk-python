@@ -5,10 +5,18 @@ from typing import Optional, cast
 from .._base_client import path_segment as seg
 from .._base_client import strip_none
 from ..pagination import AsyncPage, SyncPage
-from ..types import Organization, User
+from .._errors import TranscdrError
+from ..types import AuthResponse, Me, Membership, Organization, User
 from ._base import AsyncResource, SyncResource
 
-__all__ = ["OrganizationResource", "Members", "AsyncOrganizationResource", "AsyncMembers"]
+__all__ = [
+    "OrganizationResource",
+    "Members",
+    "Organizations",
+    "AsyncOrganizationResource",
+    "AsyncMembers",
+    "AsyncOrganizations",
+]
 
 
 class Members(SyncResource):
@@ -17,9 +25,20 @@ class Members(SyncResource):
             "/v1/organization/members", {"limit": limit, "cursor": cursor}
         )
 
-    def create(self, *, name: str, email: str, role: str, password: str) -> User:
-        """Add a member (owner/admin only). ``role``: ``owner`` | ``admin`` | ``member``."""
-        body = {"name": name, "email": email, "role": role, "password": password}
+    def create(
+        self,
+        *,
+        email: str,
+        role: str,
+        name: Optional[str] = None,
+        password: Optional[str] = None,
+    ) -> User:
+        """Add a member (owner/admin only). ``role``: ``owner`` | ``admin`` | ``member``.
+
+        The email of an existing Transcdr user gives that user access (``name``
+        and ``password`` are refused); an unknown email creates the user, and
+        then ``name`` and ``password`` are required."""
+        body = strip_none({"email": email, "role": role, "name": name, "password": password})
         return cast(User, self._client.request("POST", "/v1/organization/members", json=body))
 
     def update(self, id: str, *, role: str) -> User:
@@ -30,6 +49,33 @@ class Members(SyncResource):
 
     def delete(self, id: str) -> None:
         self._client.request("DELETE", f"/v1/organization/members/{seg(id)}")
+
+    def leave(self) -> None:
+        """Leave the organization: remove the signed-in user's own membership
+        (session tokens only). The last owner cannot leave (409 ``last_owner``)."""
+        me = cast(Me, self._client.request("GET", "/v1/me"))
+        self.delete(_own_user_id(me))
+
+
+def _own_user_id(me: Me) -> str:
+    user = me.get("user")
+    # An API key has no membership of its own to leave, even when the API
+    # reports the user who created it.
+    if not user or me.get("api_key"):
+        raise TranscdrError("members.leave() needs a session token, not an API key.")
+    return user["id"]
+
+
+class Organizations(SyncResource):
+    """The organizations the signed-in user belongs to (session tokens only)."""
+
+    def list(self) -> SyncPage[Membership]:
+        return self._client.get_page("/v1/organizations")
+
+    def create(self, *, name: str) -> AuthResponse:
+        """Create an organization owned by the caller. Returns a session token
+        in it; the current token keeps working."""
+        return cast(AuthResponse, self._client.request("POST", "/v1/organizations", json={"name": name}))
 
 
 class OrganizationResource(SyncResource):
@@ -60,8 +106,15 @@ class AsyncMembers(AsyncResource):
             "/v1/organization/members", {"limit": limit, "cursor": cursor}
         )
 
-    async def create(self, *, name: str, email: str, role: str, password: str) -> User:
-        body = {"name": name, "email": email, "role": role, "password": password}
+    async def create(
+        self,
+        *,
+        email: str,
+        role: str,
+        name: Optional[str] = None,
+        password: Optional[str] = None,
+    ) -> User:
+        body = strip_none({"email": email, "role": role, "name": name, "password": password})
         return cast(User, await self._client.request("POST", "/v1/organization/members", json=body))
 
     async def update(self, id: str, *, role: str) -> User:
@@ -74,6 +127,20 @@ class AsyncMembers(AsyncResource):
 
     async def delete(self, id: str) -> None:
         await self._client.request("DELETE", f"/v1/organization/members/{seg(id)}")
+
+    async def leave(self) -> None:
+        me = cast(Me, await self._client.request("GET", "/v1/me"))
+        await self.delete(_own_user_id(me))
+
+
+class AsyncOrganizations(AsyncResource):
+    async def list(self) -> AsyncPage[Membership]:
+        return await self._client.get_page("/v1/organizations")
+
+    async def create(self, *, name: str) -> AuthResponse:
+        return cast(
+            AuthResponse, await self._client.request("POST", "/v1/organizations", json={"name": name})
+        )
 
 
 class AsyncOrganizationResource(AsyncResource):

@@ -119,3 +119,68 @@ def test_client_helpers_delegate():
     assert client.webhooks.verify_signature(BODY, header, SECRET)
     assert client.webhooks.construct_event(BODY, header, SECRET)["id"].startswith("evt_")
     client.close()
+
+
+# --------------------------------------------------------------------------
+# The vector shared with the TypeScript and Go SDKs' tests
+# --------------------------------------------------------------------------
+
+TS_SECRET = "whsec_test_secret"
+TS_TIMESTAMP = 1_700_000_000
+TS_BODY = '{"id":"evt_1","type":"job.completed"}'
+TS_EXPECTED = "76323e66a6eb95011512d61a834db013378975ecf841d3d43eb14fcb08fbb0e4"
+TS_HEADER = f"t={TS_TIMESTAMP},v1={TS_EXPECTED}"
+
+
+def test_shared_vector():
+    assert compute_signature(TS_BODY, TS_SECRET, TS_TIMESTAMP) == TS_EXPECTED
+    assert sign_payload(TS_BODY, TS_SECRET, TS_TIMESTAMP) == TS_HEADER
+    assert verify_signature(TS_BODY, TS_HEADER, TS_SECRET, now=TS_TIMESTAMP + 300)
+    assert not verify_signature(TS_BODY, TS_HEADER, TS_SECRET, now=TS_TIMESTAMP + 301)
+
+
+# --------------------------------------------------------------------------
+# Amazon SNS / SQS destinations
+# --------------------------------------------------------------------------
+
+from transcdr.webhooks import (  # noqa: E402
+    SIGNATURE_ATTRIBUTE,
+    signature_from_attributes,
+    verify_sns_sqs_signature,
+)
+
+
+@pytest.mark.parametrize(
+    "attributes",
+    [
+        # SQS ReceiveMessage / boto3
+        {"transcdr-signature": {"DataType": "String", "StringValue": TS_HEADER}},
+        # Lambda SQS event
+        {"transcdr-signature": {"dataType": "String", "stringValue": TS_HEADER}},
+        # SNS notification JSON
+        {"transcdr-signature": {"Type": "String", "Value": TS_HEADER}},
+        # A plain string map, and a key in another case
+        {"Transcdr-Signature": TS_HEADER},
+        # The attribute value itself
+        TS_HEADER,
+    ],
+)
+def test_sns_sqs_attribute_shapes(attributes):
+    assert signature_from_attributes(attributes) == TS_HEADER
+    assert verify_sns_sqs_signature(TS_BODY, attributes, TS_SECRET, now=TS_TIMESTAMP)
+    assert not verify_sns_sqs_signature(TS_BODY + " ", attributes, TS_SECRET, now=TS_TIMESTAMP)
+    assert not verify_sns_sqs_signature(TS_BODY, attributes, "whsec_other", now=TS_TIMESTAMP)
+
+
+@pytest.mark.parametrize("attributes", [None, {}, {"other": {"StringValue": TS_HEADER}}, {"transcdr-signature": {}}, 42])
+def test_sns_sqs_missing_signature(attributes):
+    assert signature_from_attributes(attributes) is None
+    assert not verify_sns_sqs_signature(TS_BODY, attributes, TS_SECRET, now=TS_TIMESTAMP)
+
+
+def test_sns_sqs_attribute_name_and_client_helper():
+    assert SIGNATURE_ATTRIBUTE == "transcdr-signature"
+    client = Transcdr(api_key="tdk_test_example")
+    attrs = {"transcdr-signature": {"StringValue": sign_payload(TS_BODY, TS_SECRET)}}
+    assert client.webhooks.verify_sns_sqs_signature(TS_BODY, attrs, TS_SECRET)
+    client.close()

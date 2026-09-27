@@ -33,12 +33,14 @@ def _body(
     metadata: Optional[Dict[str, str]],
     webhook_url: Optional[str],
     enabled: Optional[bool],
+    trigger_connection_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     return strip_none(
         {
             "name": name,
             "enabled": enabled,
             "trigger": trigger,
+            "trigger_connection_id": trigger_connection_id,
             "source": source,
             "poll_interval_seconds": poll_interval_seconds,
             "settle_seconds": settle_seconds,
@@ -64,8 +66,13 @@ class Automations(SyncResource):
 
     ``trigger="watch"`` polls the source every ``poll_interval_seconds`` and
     takes files unchanged for ``settle_seconds``; ``trigger="hook"`` takes
-    pushes at the automation's ``hook_url``. Each object version is processed
-    exactly once."""
+    pushes at the automation's ``hook_url``; ``trigger="queue"`` consumes the
+    ``sqs`` connection ``trigger_connection_id`` (S3 notifications, directly
+    or through SNS, EventBridge events and job requests). Each object version
+    is processed exactly once.
+
+    To clear a value on ``update``: ``preset=""``, ``webhook_url=""``,
+    ``trigger_connection_id=""``, ``output={}``, ``metadata={}``."""
 
     def list(
         self, *, limit: Optional[int] = None, cursor: Optional[str] = None
@@ -88,10 +95,12 @@ class Automations(SyncResource):
         metadata: Optional[Dict[str, str]] = None,
         webhook_url: Optional[str] = None,
         enabled: Optional[bool] = None,
+        trigger_connection_id: Optional[str] = None,
     ) -> Automation:
         body = _body(
             name, source, trigger, preset, output, destination, poll_interval_seconds,
             settle_seconds, after_success, priority, metadata, webhook_url, enabled,
+            trigger_connection_id,
         )  # fmt: skip
         return cast(Automation, self._client.request("POST", "/v1/automations", json=body))
 
@@ -115,10 +124,12 @@ class Automations(SyncResource):
         metadata: Optional[Dict[str, str]] = None,
         webhook_url: Optional[str] = None,
         enabled: Optional[bool] = None,
+        trigger_connection_id: Optional[str] = None,
     ) -> Automation:
         body = _body(
             name, source, trigger, preset, output, destination, poll_interval_seconds,
             settle_seconds, after_success, priority, metadata, webhook_url, enabled,
+            trigger_connection_id,
         )  # fmt: skip
         return cast(
             Automation, self._client.request("PATCH", f"/v1/automations/{seg(id)}", json=body)
@@ -128,7 +139,8 @@ class Automations(SyncResource):
         self._client.request("DELETE", f"/v1/automations/{seg(id)}")
 
     def run(self, id: str) -> AutomationRunResult:
-        """Poll the source now: ``{jobs_created}``."""
+        """Poll the source now (``{jobs_created}``), or for a queue automation read
+        one batch from the queue (``{messages_received, messages_deleted, jobs_created}``)."""
         return cast(
             AutomationRunResult, self._client.request("POST", f"/v1/automations/{seg(id)}/run")
         )
@@ -182,10 +194,12 @@ class AsyncAutomations(AsyncResource):
         metadata: Optional[Dict[str, str]] = None,
         webhook_url: Optional[str] = None,
         enabled: Optional[bool] = None,
+        trigger_connection_id: Optional[str] = None,
     ) -> Automation:
         body = _body(
             name, source, trigger, preset, output, destination, poll_interval_seconds,
             settle_seconds, after_success, priority, metadata, webhook_url, enabled,
+            trigger_connection_id,
         )  # fmt: skip
         return cast(Automation, await self._client.request("POST", "/v1/automations", json=body))
 
@@ -209,10 +223,12 @@ class AsyncAutomations(AsyncResource):
         metadata: Optional[Dict[str, str]] = None,
         webhook_url: Optional[str] = None,
         enabled: Optional[bool] = None,
+        trigger_connection_id: Optional[str] = None,
     ) -> Automation:
         body = _body(
             name, source, trigger, preset, output, destination, poll_interval_seconds,
             settle_seconds, after_success, priority, metadata, webhook_url, enabled,
+            trigger_connection_id,
         )  # fmt: skip
         return cast(
             Automation,

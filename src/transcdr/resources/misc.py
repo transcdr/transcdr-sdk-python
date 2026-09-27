@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Mapping, Optional, Union, cast
 
+from .._base_client import NOT_GIVEN
 from .._base_client import path_segment as seg
 from ..pagination import AsyncPage, SyncPage
 from ..types import (
@@ -12,6 +13,7 @@ from ..types import (
     Checkout,
     CreditTransaction,
     Event,
+    InputReport,
     Job,
     Plan,
     Portal,
@@ -47,14 +49,6 @@ __all__ = [
 _PROBE_WAIT_TIMEOUT = 90.0
 
 
-class _NotGiven:
-    """Distinguishes "leave unchanged" from ``None`` (which clears a limit)."""
-
-    def __repr__(self) -> str:
-        return "NOT_GIVEN"
-
-
-NOT_GIVEN: Any = _NotGiven()
 
 
 def _checkout_body(plan: Optional[str], credit_cents: Optional[int]) -> Dict[str, Any]:
@@ -82,6 +76,10 @@ def _probe_timeout(client_timeout: Any, wait: bool) -> Any:
 
 def _usage_params(from_: Any, to: Any, granularity: Optional[str]) -> Mapping[str, Any]:
     return {"from": from_, "to": to, "granularity": granularity}
+
+
+def _inputs_params(from_: Any, to: Any) -> Mapping[str, Any]:
+    return {"from": from_, "to": to}
 
 
 # --------------------------------------------------------------------------
@@ -125,6 +123,14 @@ class UsageResource(SyncResource):
         ``granularity`` is ``day`` | ``week`` | ``month``."""
         return cast(
             Usage, self._client.request("GET", "/v1/usage", params=_usage_params(from_, to, granularity))
+        )
+
+    def inputs(self, *, from_: Any = None, to: Any = None) -> InputReport:
+        """The inputs the range's jobs read, bucketed by duration, size and kind
+        (``container/codec``), for a duration × size chart. ``from_`` defaults
+        to 29 days before ``to``, and ``to`` to today."""
+        return cast(
+            InputReport, self._client.request("GET", "/v1/usage/inputs", params=_inputs_params(from_, to))
         )
 
 
@@ -244,6 +250,12 @@ class AsyncUsageResource(AsyncResource):
             await self._client.request(
                 "GET", "/v1/usage", params=_usage_params(from_, to, granularity)
             ),
+        )
+
+    async def inputs(self, *, from_: Any = None, to: Any = None) -> InputReport:
+        return cast(
+            InputReport,
+            await self._client.request("GET", "/v1/usage/inputs", params=_inputs_params(from_, to)),
         )
 
 

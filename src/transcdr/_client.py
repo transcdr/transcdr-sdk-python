@@ -11,6 +11,8 @@ from ._base_client import (
     SyncAPIClient,
     Timeout,
 )
+from .resources.admin import Admin, AsyncAdmin
+from .resources.announcements import Announcements, AsyncAnnouncements, AsyncChangelog, Changelog
 from .resources.api_keys import ApiKeys, AsyncApiKeys
 from .resources.assets import Assets, AsyncAssets
 from .resources.auth import AsyncAuth, Auth
@@ -35,7 +37,12 @@ from .resources.misc import (
     StatusResource,
     UsageResource,
 )
-from .resources.organization import AsyncOrganizationResource, OrganizationResource
+from .resources.organization import (
+    AsyncOrganizationResource,
+    AsyncOrganizations,
+    OrganizationResource,
+    Organizations,
+)
 from .resources.presets import AsyncPresets, Presets
 from .resources.uploads import AsyncUploads, Uploads
 from .resources.webhooks import AsyncWebhooks, Webhooks
@@ -79,6 +86,8 @@ class Transcdr(SyncAPIClient):
         )
         self.auth = Auth(self)
         self.organization = OrganizationResource(self)
+        #: The user's organizations (session tokens only).
+        self.organizations = Organizations(self)
         self.api_keys = ApiKeys(self)
         self.uploads = Uploads(self)
         self.assets = Assets(self)
@@ -96,6 +105,11 @@ class Transcdr(SyncAPIClient):
         self.capabilities = CapabilitiesResource(self)
         self.status = StatusResource(self)
         self.stats = StatsResource(self)
+        self.announcements = Announcements(self)
+        #: The public changelog; no key needed.
+        self.changelog = Changelog(self)
+        #: The platform operator console (operator session tokens only).
+        self.admin = Admin(self)
 
     def with_options(
         self,
@@ -150,6 +164,7 @@ class AsyncTranscdr(AsyncAPIClient):
         )
         self.auth = AsyncAuth(self)
         self.organization = AsyncOrganizationResource(self)
+        self.organizations = AsyncOrganizations(self)
         self.api_keys = AsyncApiKeys(self)
         self.uploads = AsyncUploads(self)
         self.assets = AsyncAssets(self)
@@ -167,6 +182,9 @@ class AsyncTranscdr(AsyncAPIClient):
         self.capabilities = AsyncCapabilitiesResource(self)
         self.status = AsyncStatusResource(self)
         self.stats = AsyncStatsResource(self)
+        self.announcements = AsyncAnnouncements(self)
+        self.changelog = AsyncChangelog(self)
+        self.admin = AsyncAdmin(self)
 
     def with_options(
         self,
