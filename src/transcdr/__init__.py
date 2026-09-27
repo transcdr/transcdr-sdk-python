@@ -11,7 +11,7 @@
 """
 
 from . import types, webhooks
-from ._base_client import DEFAULT_BASE_URL, DEFAULT_MAX_RETRIES, DEFAULT_TIMEOUT
+from ._base_client import DEFAULT_BASE_URL, DEFAULT_MAX_RETRIES, DEFAULT_TIMEOUT, NOT_GIVEN
 from ._client import AsyncTranscdr, Transcdr
 from ._errors import (
     APIConnectionError,
@@ -41,6 +41,7 @@ __all__ = [
     "DEFAULT_BASE_URL",
     "DEFAULT_TIMEOUT",
     "DEFAULT_MAX_RETRIES",
+    "NOT_GIVEN",
     "TranscdrError",
     "APIConnectionError",
     "APITimeoutError",

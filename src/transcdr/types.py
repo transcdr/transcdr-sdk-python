@@ -87,6 +87,33 @@ __all__ = [
     "StatsLast30d",
     "Stats",
     "TERMINAL_JOB_STATUSES",
+    "OutputSpecInput",
+    "WebhookEndpointType",
+    "WebhookAwsConfig",
+    "WebhookAwsParams",
+    "StorageConnectionKind",
+    "MessagingConnectionKind",
+    "MESSAGING_CONNECTION_KINDS",
+    "CheckStep",
+    "CheckIdentity",
+    "CheckRoles",
+    "CheckSetup",
+    "ConnectionCheck",
+    "WebhookCheck",
+    "MembershipOrganization",
+    "Membership",
+    "InputReportTotals",
+    "InputTotals",
+    "InputKind",
+    "InputPoint",
+    "InputReport",
+    "AnnouncementLink",
+    "ServiceCredit",
+    "Announcement",
+    "AdminOverview",
+    "AdminJob",
+    "IncidentDetector",
+    "Incident",
 ]
 
 Metadata = Dict[str, str]
@@ -106,10 +133,15 @@ TERMINAL_JOB_STATUSES = frozenset({"completed", "failed", "canceled"})
 
 
 class Rendition(TypedDict, total=False):
+    #: Even, 64-7680.
     width: int
+    #: Even, 64-4320.
     height: int
-    #: e.g. ``"3M"`` — makes the rung rate-coded instead of quality-coded.
+    #: This rung's constant rate, e.g. ``"3M"`` or ``"800k"`` (100k to 200M), with
+    #: ``quality.target="cbr"`` only. Without it the rung takes
+    #: ``quality.bitrate``, else a default for its resolution and codec.
     bitrate: Optional[str]
+    #: 1 to 32 of ``[A-Za-z0-9_-]``; defaults to ``"<short side>p"``.
     label: Optional[str]
 
 
@@ -118,10 +150,15 @@ class Ladder(TypedDict, total=False):
 
 
 class Quality(TypedDict, total=False):
-    #: ``"visually_lossless" | "high" | "standard" | "low" | "vmaf=93"``
+    #: ``"visually_lossless" | "high" | "standard" | "low" | "vmaf=93"``, or
+    #: ``"cbr"``: every rendition at a constant bit rate instead of a quality level.
     target: str
-    #: 0..63; wins over ``target``.
+    #: 0..63; wins over ``target``. Not with ``"cbr"``.
     crf: Optional[int]
+    #: ``"cbr"`` only: the rate for renditions without their own, e.g. ``"5M"``.
+    bitrate: Optional[str]
+    #: ``"cbr"`` only: the rate buffer, 100–10000 ms (default 1000).
+    buffer_ms: Optional[int]
 
 
 class AudioSettings(TypedDict, total=False):
@@ -129,9 +166,9 @@ class AudioSettings(TypedDict, total=False):
     bitrate: Optional[str]
 
 
-class Trim(TypedDict):
+class Trim(TypedDict, total=False):
     start: float
-    end: float
+    end: Optional[float]
 
 
 class OutputSpec(TypedDict, total=False):
@@ -150,6 +187,12 @@ class OutputSpec(TypedDict, total=False):
     max_fps: Optional[float]
     filters: Optional[str]
     trim: Optional[Trim]
+
+
+#: A partial spec, as sent: job overrides (merged over the preset; objects
+#: merge, arrays replace, ``None`` clears), a preset's output, or an
+#: automation's overrides. Every field is optional.
+OutputSpecInput = OutputSpec
 
 
 # --------------------------------------------------------------------------
@@ -373,18 +416,61 @@ class Preset(TypedDict, total=False):
 # --------------------------------------------------------------------------
 
 
+WebhookEndpointType = Literal["https", "sns", "sqs"]
+
+
+class WebhookAwsConfig(TypedDict, total=False):
+    """The AWS side of an ``sns`` or ``sqs`` destination. The secret access key
+    is never returned."""
+
+    region: str
+    access_key_id: str
+    #: An SNS/SQS-compatible service endpoint, when not AWS itself.
+    endpoint: Optional[str]
+    #: FIFO topics and queues only.
+    message_group_id: Optional[str]
+    secret_access_key_set: bool
+
+
+class WebhookAwsParams(TypedDict, total=False):
+    """AWS settings as sent. On create ``access_key_id`` and
+    ``secret_access_key`` are required; on update an omitted secret is kept."""
+
+    access_key_id: str
+    secret_access_key: str
+    #: Read from the topic ARN or queue URL when omitted.
+    region: str
+    #: An SNS-compatible service endpoint; ``None`` on update clears it.
+    endpoint: Optional[str]
+    #: FIFO targets; default ``"transcdr"``. ``None`` on update clears it.
+    message_group_id: Optional[str]
+
+
 class WebhookEndpoint(TypedDict, total=False):
+    """An event destination: an HTTPS URL, an Amazon SNS topic or an Amazon SQS
+    queue, or a messaging connection."""
+
     object: Literal["webhook_endpoint"]
     id: str
+    #: ``https`` for endpoints created before destinations had a type.
+    type: WebhookEndpointType
+    #: The HTTPS URL; for ``sns``/``sqs`` the topic ARN or queue URL.
     url: str
+    topic_arn: Optional[str]
+    queue_url: Optional[str]
+    aws: Optional[WebhookAwsConfig]
     description: str
     events: List[str]
     enabled: bool
     #: Only returned on create and rotate.
     secret: str
     created_at: str
+    updated_at: str
     last_delivery_at: Optional[str]
     failure_count: int
+    #: The messaging connection (``sqs``, ``sns``, ``webhook``) events go
+    #: through, or ``None`` when the endpoint has its own target.
+    connection_id: Optional[str]
 
 
 class WebhookDelivery(TypedDict, total=False):
@@ -419,13 +505,25 @@ class Event(TypedDict, total=False):
 # Integrations: connections & automations
 # --------------------------------------------------------------------------
 
-ConnectionKind = Literal["s3", "gcs", "azure_blob", "ftp", "ftps", "sftp", "http", "webdav"]
+StorageConnectionKind = Literal["s3", "gcs", "azure_blob", "ftp", "ftps", "sftp", "http", "webdav"]
+#: Receive events; an ``sqs`` connection can also trigger automations.
+MessagingConnectionKind = Literal["sqs", "sns", "webhook"]
+ConnectionKind = Literal[
+    "s3", "gcs", "azure_blob", "ftp", "ftps", "sftp", "http", "webdav", "sqs", "sns", "webhook"
+]
+
+#: The messaging kinds: never a job input, a destination or an automation source.
+MESSAGING_CONNECTION_KINDS = frozenset({"sqs", "sns", "webhook"})
 
 
 class ConnectionCapabilities(TypedDict, total=False):
     source: bool
     destination: bool
     watch: bool
+    #: It can trigger ``queue`` automations (``sqs``).
+    trigger: bool
+    #: It can receive events (messaging kinds).
+    events: bool
 
 
 class Connection(TypedDict, total=False):
@@ -433,16 +531,92 @@ class Connection(TypedDict, total=False):
     id: str
     name: str
     kind: ConnectionKind
-    #: Non-secret settings (bucket, region, endpoint, host, root, …).
+    #: Non-secret settings (bucket, region, endpoint, host, root, queue_url, …).
     config: Dict[str, Any]
     #: Names of the secrets that are set; secret values are write-only.
     secrets_set: List[str]
     capabilities: ConnectionCapabilities
     status: Literal["untested", "ok", "error"]
+    #: ``storage`` or ``messaging``.
+    #: (``class`` is a keyword: read it as ``connection["class"]``.)
+    enabled: bool
+    #: Transient failures in a row; any success resets it.
+    failure_count: int
+    #: ``"<activity>: <error>"`` or ``"Disabled by hand."``.
+    disabled_reason: Optional[str]
+    disabled_at: Optional[str]
     last_error: Optional[str]
     last_checked_at: Optional[str]
     created_at: str
     updated_at: str
+
+
+class CheckStep(TypedDict, total=False):
+    """One step of a live check. Connections: ``settings``, ``connect``,
+    ``identity``, ``list``, ``write``, ``read``, ``delete``. Destinations:
+    ``identity``, then ``deliver``, ``publish`` or ``send``."""
+
+    id: str
+    label: str
+    status: Literal["passed", "failed", "skipped"]
+    #: What happened, or the provider's error.
+    detail: Optional[str]
+    #: On failure: what to change.
+    hint: Optional[str]
+    duration_ms: Optional[int]
+
+
+class CheckIdentity(TypedDict, total=False):
+    """Who the credentials sign in as. ``provider`` is ``aws``, ``gcp``,
+    ``azure``, ``s3_compatible`` or ``sftp``; the other fields depend on it."""
+
+    provider: str
+    arn: str
+    account: str
+    service_account: str
+    project: str
+    auth: str
+    access_key_id: str
+    user: str
+    server: str
+
+
+class CheckRoles(TypedDict, total=False):
+    source: bool
+    watch_folder: bool
+    destination: bool
+    #: ``sqs``: the queue can be read, so it can trigger automations.
+    trigger: bool
+    #: ``sns``, ``webhook``: the test event got through.
+    notifications: bool
+
+
+#: Provider-specific setup: ``summary``, ``iam_policy``, ``queue_policy_for_s3``,
+#: ``queue_policy_for_sns``, ``s3_notification``, ``notes``, ``role``, ``command``, …
+CheckSetup = Dict[str, Any]
+
+
+class ConnectionCheck(TypedDict, total=False):
+    object: Literal["connection_check"]
+    #: Every step passed (skipped steps do not count against it).
+    ok: bool
+    steps: List[CheckStep]
+    identity: Optional[CheckIdentity]
+    setup: Optional[CheckSetup]
+    roles: CheckRoles
+    #: Saved connections only: the connection with its updated status.
+    connection: "Connection"
+
+
+class WebhookCheck(TypedDict, total=False):
+    object: Literal["webhook_check"]
+    ok: bool
+    steps: List[CheckStep]
+    identity: Optional[CheckIdentity]
+    setup: Optional[CheckSetup]
+    roles: CheckRoles
+    #: Saved endpoints only.
+    endpoint: WebhookEndpoint
 
 
 class ConnectionTestResult(TypedDict, total=False):
@@ -470,7 +644,9 @@ class Automation(TypedDict, total=False):
     id: str
     name: str
     enabled: bool
-    trigger: Literal["watch", "hook"]
+    trigger: Literal["watch", "hook", "queue"]
+    #: ``queue``: the ``sqs`` connection it consumes.
+    trigger_connection_id: Optional[str]
     source: AutomationSource
     poll_interval_seconds: int
     settle_seconds: int
@@ -501,6 +677,11 @@ class AutomationItem(TypedDict, total=False):
 
 class AutomationRunResult(TypedDict, total=False):
     jobs_created: int
+    job_ids: List[str]
+    #: Queue automations: messages read in this batch.
+    messages_received: int
+    #: Queue automations: messages handled and removed from the queue.
+    messages_deleted: int
 
 
 class AutomationTriggerResult(TypedDict, total=False):
@@ -536,6 +717,10 @@ class Organization(TypedDict, total=False):
     billing_email: Optional[str]
     #: Only for owners/admins holding ``org:write``.
     job_webhook_secret: str
+    #: The full plan object for ``plan``.
+    plan_details: "Plan"
+    #: Suspended organizations cannot create jobs.
+    suspended: bool
     created_at: str
 
 
@@ -549,16 +734,42 @@ class User(TypedDict, total=False):
     created_at: str
 
 
+class MembershipOrganization(TypedDict, total=False):
+    id: str
+    name: str
+    slug: str
+    plan: str
+
+
+class Membership(TypedDict, total=False):
+    """An organization the user belongs to, with the user's role there."""
+
+    object: Literal["membership"]
+    organization: MembershipOrganization
+    role: Literal["owner", "admin", "member"]
+    created_at: str
+
+
 class Me(TypedDict, total=False):
     user: Optional[User]
     organization: Organization
+    #: Every organization the user belongs to; empty for API keys.
+    organizations: List[Membership]
+    #: The key in use, for API keys.
+    api_key: Optional[ApiKey]
     scopes: List[str]
+    #: ``False`` for test-mode keys.
+    livemode: bool
 
 
 class AuthResponse(TypedDict, total=False):
     token: str
+    #: ``role`` and ``organization_id`` are the user's in ``organization``.
     user: User
+    #: The organization the token belongs to.
     organization: Organization
+    #: Every organization the user belongs to.
+    organizations: List[Membership]
 
 
 # --------------------------------------------------------------------------
@@ -597,6 +808,55 @@ Usage = TypedDict(
         "by_tier": Dict[str, float],
         "by_codec": Dict[str, float],
         "series": List[UsagePoint],
+    },
+    total=False,
+)
+
+
+class InputReportTotals(TypedDict, total=False):
+    """Totals for a set of inputs."""
+
+    files: int
+    size_bytes: int
+    input_minutes: float
+    billable_minutes: float
+
+
+class InputKind(InputReportTotals, total=False):
+    """One kind of input, ``container/codec``: ``mp4/h264``, ``mkv/hevc``, ``m4a/audio``."""
+
+    #: ``container/codec``, or ``other`` for the kinds past the seven most common.
+    kind: str
+    container: Optional[str]
+    video_codec: Optional[str]
+
+
+class InputPoint(InputReportTotals, total=False):
+    """The inputs of one kind in one duration × size bucket (log scale, four per decade)."""
+
+    kind: str
+    #: Where to plot the point.
+    mean_duration_seconds: float
+    mean_size_bytes: float
+    #: The bucket's bounds, ``[low, high)``.
+    duration_range: List[float]
+    size_range: List[float]
+
+
+InputTotals = InputReportTotals
+
+# ``from`` is a Python keyword, so InputReport uses the functional syntax.
+InputReport = TypedDict(
+    "InputReport",
+    {
+        "object": Literal["input_report"],
+        "from": str,
+        "to": str,
+        #: Inputs not probed yet, or with no duration or size: counted, not plotted.
+        "unmeasured": int,
+        #: Most files first; ``other`` last.
+        "kinds": List[InputKind],
+        "points": List[InputPoint],
     },
     total=False,
 )
@@ -767,11 +1027,19 @@ InvoiceLine = StatementLine
 
 
 class Capabilities(TypedDict, total=False):
-    codecs: List[str]
-    modes: List[str]
+    #: ``[{"id": "av1", "name": "AV1", "default": True, "hdr": True, "bit_depths": [8, 10], …}]``
+    codecs: List[Dict[str, Any]]
+    #: ``[{"id": "hls", "description": "…"}]``
+    modes: List[Dict[str, Any]]
+    audio: List[str]
+    bit_depth: List[str]
     color: List[str]
-    limits: Dict[str, Any]
+    quality_targets: List[str]
     filters: List[str]
+    input_containers: List[str]
+    input_video_codecs: List[str]
+    input_audio_codecs: List[str]
+    limits: Dict[str, Any]
     system_presets: List[Preset]
 
 
@@ -817,3 +1085,98 @@ class Stats(TypedDict, total=False):
     last_24h: StatsLast24h
     last_30d: StatsLast30d
     daily: List[StatsDay]
+
+
+# --------------------------------------------------------------------------
+# Announcements: the changelog and service-credit notices
+# --------------------------------------------------------------------------
+
+
+class AnnouncementLink(TypedDict):
+    """A call to action. A ``url`` that is a path (``/app/…``) is on the dashboard."""
+
+    label: str
+    url: str
+
+
+class ServiceCredit(TypedDict, total=False):
+    """What an incident's credit gave back to your organization."""
+
+    incident_id: str
+    amount_usd: float
+    #: How many times the affected charges were credited.
+    multiplier: int
+    #: The affected jobs.
+    jobs: List[str]
+    applied_at: str
+
+
+class Announcement(TypedDict, total=False):
+    object: Literal["announcement"]
+    id: str
+    kind: Literal["changelog", "service_credit"]
+    title: str
+    #: Markdown.
+    body: str
+    #: ``None`` for a draft (operator console only).
+    published_at: Optional[str]
+    link: Optional[AnnouncementLink]
+    #: Changelog entries only; may be empty.
+    tags: List[str]
+    #: Service credits only.
+    credit: Optional[ServiceCredit]
+    #: Always ``False`` for API keys, which have no user to remember it for.
+    seen: bool
+    seen_at: Optional[str]
+
+
+# --------------------------------------------------------------------------
+# Platform operator console
+# --------------------------------------------------------------------------
+
+
+class AdminOverview(TypedDict, total=False):
+    object: Literal["admin_overview"]
+    organizations: int
+    #: Live jobs only.
+    jobs_by_status: Dict[str, int]
+
+
+class AdminJob(Job, total=False):
+    """A job as the operator console sees it."""
+
+    #: The organization's id.
+    organization: Any
+    #: Operator-only processing details, as returned.
+    internals: Optional[Dict[str, Any]]
+
+
+class IncidentDetector(TypedDict, total=False):
+    name: str
+    summary: str
+    filters: Dict[str, Any]
+
+
+class Incident(TypedDict, total=False):
+    """A service incident whose affected jobs are credited."""
+
+    object: Literal["incident"]
+    id: str
+    title: str
+    #: What customers are told.
+    description: str
+    detector: Optional[str]
+    filters: Dict[str, Any]
+    window_start: str
+    window_end: str
+    multiplier: int
+    status: str
+    affected_jobs: int
+    affected_organizations: int
+    review_jobs: int
+    credit_usd: float
+    created_by: str
+    created_at: str
+    applied_at: Optional[str]
+    #: The affected jobs, on retrieve, preview and apply.
+    impacts: List[Dict[str, Any]]

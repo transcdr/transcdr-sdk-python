@@ -39,6 +39,25 @@ Params = Optional[Mapping[str, Any]]
 Timeout = Union[float, httpx.Timeout, None]
 
 
+class _NotGiven:
+    """Distinguishes "leave unchanged" from ``None`` (which is sent as JSON
+    ``null`` and clears a value where the API allows it)."""
+
+    def __repr__(self) -> str:
+        return "NOT_GIVEN"
+
+    def __bool__(self) -> bool:
+        return False
+
+
+NOT_GIVEN: Any = _NotGiven()
+
+
+def strip_not_given(values: Mapping[str, Any]) -> Dict[str, Any]:
+    """Drop keys left as :data:`NOT_GIVEN`; keep ``None`` (sent as ``null``)."""
+    return {k: v for k, v in values.items() if v is not NOT_GIVEN}
+
+
 def new_idempotency_key() -> str:
     return str(uuid.uuid4())
 
