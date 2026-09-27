@@ -8,13 +8,17 @@ AV1, H.264 and H.265 transcodes, MP4 renditions and CMAF/HLS ABR ladders.
 - Cursor pagination with `auto_paging_iter()`
 - Automatic retries with exponential backoff and jitter, made safe by idempotency keys
 - One-call file uploads and job polling
-- Storage connections (S3, R2, B2, MinIO, GCS, Azure, FTP/FTPS, SFTP, HTTP, WebDAV), deliveries and automations
-- Webhook signature verification
+- Storage connections (S3, R2, B2, MinIO, GCS, Azure, FTP/FTPS, SFTP, HTTP, WebDAV), messaging
+  connections (SQS, SNS, webhooks), deliveries, and watch, hook and queue automations
+- Event destinations on HTTPS, Amazon SNS and Amazon SQS, and signature verification for all three
+- Constant bit rate output, several organizations per login, and the input report
 
 Requires Python 3.9+. The only dependency is [`httpx`](https://www.python-httpx.org/).
 
+The SDK is installed from this repository (it is not on PyPI yet):
+
 ```sh
-pip install transcdr
+pip install "transcdr @ git+https://github.com/transcdr/transcdr-sdk-python@v0.1.0"
 ```
 
 ## Quickstart
@@ -64,6 +68,31 @@ job = client.jobs.create(
 )
 ```
 
+### Constant bit rate
+
+`quality.target = "cbr"` codes every rendition at a constant bit rate instead of to a quality
+level, for players, networks and broadcast chains that need predictable bandwidth. Each rendition
+takes its own `bitrate`, else `quality.bitrate`, else a default for its resolution and codec,
+held within a buffer of `buffer_ms` (default 1000):
+
+```python
+preset = client.presets.create(
+    name="Broadcast CBR",
+    output={
+        "mode": "hls",
+        "codec": "h264",
+        "quality": {"target": "cbr", "bitrate": "3M", "buffer_ms": 1500},
+        "renditions": [
+            {"width": 1920, "height": 1080, "bitrate": "6M"},
+            {"width": 1280, "height": 720},  # at quality.bitrate
+        ],
+    },
+)
+job = client.jobs.create(input="ast_...", preset=preset["id"])
+```
+
+A `crf`, or a rate without `"cbr"`, is refused with an `InvalidRequestError`.
+
 ### Async
 
 ```python
@@ -83,27 +112,33 @@ asyncio.run(main())
 
 ## Resources
 
+Every method has an async twin on `AsyncTranscdr`. The surface matches the TypeScript SDK 0.3.0.
+
 | Attribute | Methods |
 |---|---|
-| `client.auth` | `register`, `login`, `logout`, `change_password`, `me` |
-| `client.organization` | `retrieve`, `update`, `rotate_job_webhook_secret`; `.members`: `list`, `create`, `update`, `delete` |
+| `client.auth` | `register`, `login` (with `organization_id=`), `switch`, `logout`, `change_password`, `me` |
+| `client.organization` | `retrieve`, `update`, `rotate_job_webhook_secret`; `.members`: `list`, `create`, `update`, `delete`, `leave` |
+| `client.organizations` | `list`, `create` (the user's organizations; session tokens only) |
 | `client.api_keys` | `list`, `create`, `delete` (`revoke`) |
 | `client.uploads` | `create`, `complete`, `upload_file` |
-| `client.assets` | `list`, `create` (import by URL), `retrieve`, `delete`, `download_url` |
+| `client.assets` | `list`, `create` (import by URL), `retrieve`, `delete`, `download_url`, `content_url` |
 | `client.jobs` | `create`, `list`, `retrieve`, `cancel`, `retry`, `delete`, `events`, `outputs`, `output_url`, `file_url`, `deliveries`, `deliver`, `wait` |
 | `client.deliveries` | `retry` |
 | `client.probe` | `create(input=..., wait=True)` |
 | `client.presets` | `list`, `create`, `retrieve`, `update`, `delete` |
-| `client.webhooks` | `list`, `create`, `retrieve`, `update`, `delete`, `rotate_secret`, `test`, `deliveries`, `redeliver`, `verify_signature`, `construct_event` |
-| `client.connections` | `list`, `create`, `retrieve`, `update`, `delete`, `test`, `browse` |
+| `client.webhooks` | `list`, `create` (HTTPS, SNS, SQS or a connection), `retrieve`, `update`, `delete`, `rotate_secret`, `test`, `check`, `check_saved`, `deliveries`, `redeliver`, `verify_signature`, `verify_sns_sqs_signature`, `construct_event` |
+| `client.connections` | `list`, `create`, `retrieve`, `update`, `enable`, `disable`, `delete`, `test`, `check`, `check_saved`, `browse` |
 | `client.automations` | `list`, `create`, `retrieve`, `update`, `delete`, `run`, `trigger`, `rotate_hook_token`, `items` |
 | `client.events` | `list(type=...)`, `retrieve` |
-| `client.usage` | `retrieve(from_=..., to=..., granularity=...)` |
+| `client.usage` | `retrieve(from_=..., to=..., granularity=...)`, `inputs(from_=..., to=...)` |
 | `client.billing` | `retrieve`, `checkout(plan= \| credit_cents=)`, `portal`, `update_settings`, `transactions`, `change_plan`; `.invoices`: `list` (monthly statements) |
 | `client.plans` | `list` |
 | `client.capabilities` | `retrieve` |
 | `client.status` | `retrieve` |
 | `client.stats` | `retrieve` (public platform statistics) |
+| `client.announcements` | `list(unseen=, kind=, limit=)`, `mark_seen`, `mark_all_seen` |
+| `client.changelog` | `list` (public) |
+| `client.admin` | `overview`, `jobs`, `organizations`, `update_organization`, `grant_credit`; `.announcements`: `list`, `create`, `update`, `delete`; `.incidents`: `detectors`, `list`, `create`, `retrieve`, `preview`, `apply` (platform operators only) |
 
 Anything not wrapped yet: `client.request("GET", "/v1/openapi.json")`.
 
@@ -174,7 +209,20 @@ for entry in client.billing.transactions(limit=20):
 ```
 
 `update_settings(monthly_limit_cents=None)` removes the monthly limit; leaving an argument out
-leaves that setting as it is.
+leaves that setting as it is. The same goes for `auto_recharge={"monthly_cap_cents": None}`.
+
+### The input report
+
+`usage.inputs()` buckets the inputs a date range's jobs read by duration, size and kind
+(`container/codec`), for a duration × size chart:
+
+```python
+report = client.usage.inputs(from_="2026-09-01", to="2026-09-30")
+for kind in report["kinds"]:
+    print(kind["kind"], kind["files"], kind["size_bytes"], kind["input_minutes"])
+for point in report["points"]:
+    print(point["kind"], point["mean_duration_seconds"], point["mean_size_bytes"], point["files"])
+```
 
 ## Retries and idempotency
 
@@ -254,13 +302,52 @@ async def transcdr_webhook(request: Request, transcdr_signature: str = Header(No
 Respond with a 2xx quickly; failed deliveries are retried after 1 m, 5 m, 30 m, 2 h, 6 h and 12 h.
 Use `transcdr.webhooks.sign_payload(body, secret)` to build valid headers in your own tests.
 
+### Amazon SNS and SQS destinations
+
+An event destination can also publish to an SNS topic or send to an SQS queue, or go through a
+messaging connection that holds the target and keys:
+
+```python
+client.webhooks.create(url="https://example.com/hooks/transcdr", events=["job.completed", "job.failed"])
+client.webhooks.create(
+    topic_arn="arn:aws:sns:us-east-1:123456789012:transcdr-events",
+    aws={"access_key_id": "AKIA...", "secret_access_key": "..."},
+)
+client.webhooks.create(
+    queue_url="https://sqs.us-east-1.amazonaws.com/123456789012/transcdr-events",
+    aws={"access_key_id": "AKIA...", "secret_access_key": "..."},
+)
+client.webhooks.create(connection_id="con_...")                  # an sqs, sns or webhook connection
+client.webhooks.check(url="https://example.com/hooks/transcdr")  # try it without saving
+```
+
+SNS and SQS deliveries carry the signature in the `transcdr-signature` message attribute, over
+`"<t>.<message>"`. `verify_sns_sqs_signature` takes the attribute map in any AWS shape: boto3 and
+`ReceiveMessage` (`StringValue`), Lambda SQS events (`stringValue`) and SNS JSON (`Value`):
+
+```python
+from transcdr.webhooks import verify_sns_sqs_signature
+
+def handler(event, context):                                  # an SQS-triggered Lambda
+    for record in event["Records"]:
+        if not verify_sns_sqs_signature(record["body"], record["messageAttributes"], SECRET):
+            raise ValueError("bad signature")
+```
+
+With raw message delivery off, an SNS to SQS subscription wraps the notification: parse the body
+and pass its `Message` and `MessageAttributes` instead.
+
 ## Integrations: connections, deliveries and automations
 
-Available on the Starter plan and above. A **connection** is your own storage: jobs can read
-inputs from it and deliver outputs to it. Connections are checked before they are saved and on
-every update; a failing check raises `InvalidRequestError`. Secret values are write-only (the API
-returns only their names in `secrets_set`). On `update`, `config` merges, an omitted secret is
-kept, and `""` clears it.
+Available on the Starter plan and above. A **storage connection** is your own storage: jobs can
+read inputs from it and deliver outputs to it. A **messaging connection** (`sqs`, `sns`,
+`webhook`) receives events, and an `sqs` connection can trigger queue automations. Connections
+are tested when they are saved and on every update; the outcome is in `status` and `last_error`.
+Secret values are write-only (the API returns only their names in `secrets_set`). On `update`,
+`config` merges (a `None` value clears that field), an omitted secret is kept, and `""` clears it.
+
+A connection that keeps failing is turned off (`enabled: False`, with `disabled_reason`), and
+anything using it is refused until `client.connections.enable(id)` turns it back on.
 
 ### Connection examples by provider
 
@@ -393,7 +480,19 @@ dav = client.connections.create(
 )
 ```
 
-Check or explore a connection:
+Check settings before saving them, or a saved connection, step by step, with the roles it can
+serve and provider-specific setup such as a least-privilege IAM policy:
+
+```python
+report = client.connections.check(kind="s3", config={"bucket": "my-videos", "region": "us-east-1"},
+                                  secrets={"access_key_id": "AKIA...", "secret_access_key": "..."})
+for step in report["steps"]:
+    print(step["id"], step["status"], step.get("detail"), step.get("hint"))
+print(report["roles"], report["setup"]["iam_policy"])
+client.connections.check_saved(s3["id"])
+```
+
+Test or explore a connection:
 
 ```python
 result = client.connections.test(s3["id"])          # {"ok": ..., "error": ..., "connection": ...}
@@ -452,6 +551,46 @@ With `trigger="hook"`, point bucket notifications (S3/R2/MinIO, directly or via 
 your own system at the automation's `hook_url`, e.g. `POST {"path": "incoming/a.mp4"}` or
 `{"paths": [...]}`. `client.automations.rotate_hook_token(id)` issues a new `hook_url`.
 
+With `trigger="queue"`, the automation consumes an `sqs` connection: S3 notifications sent to the
+queue directly or through an SNS topic, EventBridge `Object Created` events, `{"path": ...}`
+messages and job requests. No public endpoint is involved.
+
+```python
+queue = client.connections.create(
+    name="Upload events",
+    kind="sqs",
+    config={"queue_url": "https://sqs.us-east-1.amazonaws.com/123456789012/uploads"},
+    secrets={"access_key_id": "AKIA...", "secret_access_key": "..."},
+)
+automation = client.automations.create(
+    name="Uploads",
+    trigger="queue",
+    trigger_connection_id=queue["id"],
+    source={"connection_id": s3["id"], "prefix": "incoming/"},
+    preset="hls-h264-abr",
+)
+client.automations.run(automation["id"])   # read one batch now -> messages_received, messages_deleted, jobs_created
+```
+
+To clear a value with `update`: `preset=""`, `webhook_url=""`, `trigger_connection_id=""`,
+`output={}` or `metadata={}`.
+
+## Organizations
+
+One login can belong to several organizations. With a session token:
+
+```python
+session = client.auth.login(email="person@example.com", password="...", organization_id="org_...")
+client.api_key = session["token"]
+for membership in session["organizations"]:
+    print(membership["organization"]["name"], membership["role"])
+
+switched = client.auth.switch("org_other")   # revokes the current token
+client.api_key = switched["token"]
+new = client.organizations.create(name="Side project")   # a token in the new organization
+client.organization.members.create(email="teammate@example.com", role="admin")  # an existing user
+```
+
 ## Test mode
 
 Keys starting with `tdk_test_` run in test mode: jobs are never really processed; they complete with
@@ -478,3 +617,7 @@ python -m venv .venv
 .venv/bin/pip install -e ".[dev]"      # Windows: .venv\Scripts\pip
 .venv/bin/pytest
 ```
+
+## License
+
+MIT
