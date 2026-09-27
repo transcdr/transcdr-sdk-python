@@ -53,6 +53,8 @@ __all__ = [
     "Asset",
     "Upload",
     "Preset",
+    "PresetCategory",
+    "Platform",
     "WebhookEndpoint",
     "WebhookDelivery",
     "Event",
@@ -409,6 +411,14 @@ class SecretFingerprint(TypedDict):
 # --------------------------------------------------------------------------
 
 
+PresetCategory = Literal["web", "mobile", "streaming", "tv", "social", "audio", "archive"]
+"""The group a preset is shown in. More may be added: treat an unknown one as
+uncategorised. ``audio`` is reserved for audio-only presets."""
+
+Platform = Literal["web", "ios", "android", "smart_tv", "legacy", "editing"]
+"""Where an output plays. More may be added: ignore unknown ones."""
+
+
 class Preset(TypedDict, total=False):
     object: Literal["preset"]
     id: str
@@ -416,6 +426,11 @@ class Preset(TypedDict, total=False):
     name: str
     description: str
     system: bool
+    category: PresetCategory
+    compatibility: List[Platform]
+    """Where the output plays: derived from ``output`` unless the preset sets its own."""
+    compatibility_notes: Dict[str, str]
+    """Minimum versions and conditions, by platform in ``compatibility``."""
     output: OutputSpec
     metadata: Metadata
     created_at: str

@@ -18,7 +18,7 @@ Requires Python 3.9+. The only dependency is [`httpx`](https://www.python-httpx.
 The SDK is installed from this repository (it is not on PyPI yet):
 
 ```sh
-pip install "transcdr @ git+https://github.com/transcdr/transcdr-sdk-python@v0.2.0"
+pip install "transcdr @ git+https://github.com/transcdr/transcdr-sdk-python@v0.3.0"
 ```
 
 ## Quickstart
@@ -112,7 +112,7 @@ asyncio.run(main())
 
 ## Resources
 
-Every method has an async twin on `AsyncTranscdr`. The surface matches the TypeScript SDK 0.4.0.
+Every method has an async twin on `AsyncTranscdr`. The surface matches the TypeScript SDK 0.5.0.
 
 | Attribute | Methods |
 |---|---|
@@ -125,7 +125,7 @@ Every method has an async twin on `AsyncTranscdr`. The surface matches the TypeS
 | `client.jobs` | `create`, `list`, `retrieve`, `cancel`, `retry`, `delete`, `events`, `outputs`, `output_url`, `file_url`, `deliveries`, `deliver`, `wait` |
 | `client.deliveries` | `retry` |
 | `client.probe` | `create(input=..., wait=True)` |
-| `client.presets` | `list`, `create`, `retrieve`, `update` (PATCH: `output` merges), `replace` (PUT: the whole preset), `delete` |
+| `client.presets` | `list(category=..., compatible_with=...)`, `create`, `retrieve`, `update` (PATCH: `output` merges), `replace` (PUT: the whole preset), `delete` |
 | `client.webhooks` | `list`, `create` (HTTPS, SNS, SQS or a connection), `retrieve`, `update`, `delete`, `rotate_secret`, `test`, `check`, `check_saved`, `deliveries`, `redeliver`, `verify_signature`, `verify_sns_sqs_signature`, `construct_event` |
 | `client.connections` | `list`, `create`, `retrieve`, `update`, `enable`, `disable`, `delete`, `test`, `check`, `check_saved`, `browse` |
 | `client.automations` | `list`, `create`, `retrieve`, `update`, `delete`, `run`, `trigger`, `rotate_hook_token`, `items` |
@@ -242,13 +242,34 @@ client = Transcdr(timeout=30, max_retries=4)
 client.with_options(max_retries=0).jobs.retrieve("job_...")
 ```
 
+## Preset categories and compatibility
+
+Every preset has a `category` (`web`, `mobile`, `streaming`, `tv`, `social`, `audio`, `archive`),
+the group it is shown in, and `compatibility`: the platforms its output plays on (`web`, `ios`,
+`android`, `smart_tv`, `legacy`, `editing`), with `compatibility_notes` giving each one's minimum
+versions and conditions, such as audio that needs an AAC source. Both are derived from the
+preset's `output`; the type aliases are `transcdr.types.PresetCategory` and
+`transcdr.types.Platform`. More values may be added, so treat unknown ones gracefully.
+
+```python
+# Presets in either category that play on both iOS and Android.
+page = client.presets.list(category=["web", "mobile"], compatible_with=["ios", "android"])
+for preset in page.data:
+    print(preset["slug"], preset["compatibility"], preset["compatibility_notes"].get("ios"))
+
+# Your own preset may state its own; None derives them from its output again.
+client.presets.update("pre_...", category="tv", compatibility=["smart_tv", "legacy"])
+client.presets.update("pre_...", category=None, compatibility=None)
+```
+
 ## Updating: left out, or None
 
 `update` methods send `PATCH`: an argument left out keeps its value, and `None` clears it. That
 covers an automation's `destination`, `preset`, `output`, `metadata`, `webhook_url` and
 `trigger_connection_id`; a webhook's `description` (and `endpoint` / `message_group_id` inside
 `aws`); a connection's `config` fields and storage `secrets`; a preset's `description` and
-`metadata`; and the organization's `billing_email`. (On `create`, `None` still means "not
+`metadata` (and `category`, `compatibility` and `compatibility_notes`, which `None` derives
+again); and the organization's `billing_email`. (On `create`, `None` still means "not
 given".)
 
 ```python

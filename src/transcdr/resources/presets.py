@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, cast
+from typing import Any, Dict, List, Optional, Sequence, Union, cast
 
 from .._base_client import NOT_GIVEN, strip_none, strip_not_given
 from .._base_client import path_segment as seg
 from ..pagination import AsyncPage, SyncPage
-from ..types import OutputSpec, Preset
+from ..types import OutputSpec, Platform, Preset, PresetCategory
 from ._base import AsyncResource, SyncResource
 
 __all__ = ["Presets", "AsyncPresets"]
@@ -17,9 +17,21 @@ def _body(
     slug: Optional[str],
     description: Optional[str],
     metadata: Optional[Dict[str, str]],
+    category: Optional[PresetCategory] = None,
+    compatibility: Optional[List[Platform]] = None,
+    compatibility_notes: Optional[Dict[str, str]] = None,
 ) -> Dict[str, object]:
     return strip_none(
-        {"name": name, "slug": slug, "description": description, "output": output, "metadata": metadata}
+        {
+            "name": name,
+            "slug": slug,
+            "description": description,
+            "output": output,
+            "metadata": metadata,
+            "category": category,
+            "compatibility": compatibility,
+            "compatibility_notes": compatibility_notes,
+        }
     )
 
 
@@ -29,17 +41,61 @@ def _update_body(
     slug: Optional[str],
     description: Any,
     metadata: Any,
+    category: Any = NOT_GIVEN,
+    compatibility: Any = NOT_GIVEN,
+    compatibility_notes: Any = NOT_GIVEN,
 ) -> Dict[str, object]:
     body = strip_none({"name": name, "slug": slug, "output": output})
-    body.update(strip_not_given({"description": description, "metadata": metadata}))
+    body.update(
+        strip_not_given(
+            {
+                "description": description,
+                "metadata": metadata,
+                "category": category,
+                "compatibility": compatibility,
+                "compatibility_notes": compatibility_notes,
+            }
+        )
+    )
     return body
+
+
+def _joined(value: Union[str, Sequence[str], None]) -> Optional[str]:
+    if value is None or isinstance(value, str):
+        return value
+    return ",".join(value)
+
+
+def _list_params(
+    limit: Optional[int],
+    cursor: Optional[str],
+    category: Union[str, Sequence[str], None],
+    compatible_with: Union[str, Sequence[str], None],
+) -> Dict[str, object]:
+    return {
+        "limit": limit,
+        "cursor": cursor,
+        "category": _joined(category),
+        "compatible_with": _joined(compatible_with),
+    }
 
 
 class Presets(SyncResource):
     """System presets (``hls-av1-abr``, ``web-av1-1080p``, …) plus your organization's."""
 
-    def list(self, *, limit: Optional[int] = None, cursor: Optional[str] = None) -> SyncPage[Preset]:
-        return self._client.get_page("/v1/presets", {"limit": limit, "cursor": cursor})
+    def list(
+        self,
+        *,
+        limit: Optional[int] = None,
+        cursor: Optional[str] = None,
+        category: Union[PresetCategory, Sequence[PresetCategory], None] = None,
+        compatible_with: Union[Platform, Sequence[Platform], None] = None,
+    ) -> SyncPage[Preset]:
+        """``category`` keeps presets in any of the categories given;
+        ``compatible_with`` keeps those that play on every platform given.
+        Each takes a string or a list."""
+        params = _list_params(limit, cursor, category, compatible_with)
+        return self._client.get_page("/v1/presets", params)
 
     def create(
         self,
@@ -49,9 +105,12 @@ class Presets(SyncResource):
         slug: Optional[str] = None,
         description: Optional[str] = None,
         metadata: Optional[Dict[str, str]] = None,
+        category: Optional[PresetCategory] = None,
+        compatibility: Optional[List[Platform]] = None,
+        compatibility_notes: Optional[Dict[str, str]] = None,
         idempotency_key: Optional[str] = None,
     ) -> Preset:
-        body = _body(name, output, slug, description, metadata)
+        body = _body(name, output, slug, description, metadata, category, compatibility, compatibility_notes)
         return cast(Preset, self._client._create("/v1/presets", body, idempotency_key))
 
     def retrieve(self, id_or_slug: str) -> Preset:
@@ -66,10 +125,17 @@ class Presets(SyncResource):
         slug: Optional[str] = None,
         description: Optional[str] = NOT_GIVEN,
         metadata: Optional[Dict[str, str]] = NOT_GIVEN,
+        category: Optional[PresetCategory] = NOT_GIVEN,
+        compatibility: Optional[List[Platform]] = NOT_GIVEN,
+        compatibility_notes: Optional[Dict[str, str]] = NOT_GIVEN,
     ) -> Preset:
         """Change the fields given (``PATCH``). ``output`` merges into the
-        stored spec. ``description=None`` or ``metadata=None`` clears it."""
-        body = _update_body(name, output, slug, description, metadata)
+        stored spec. ``description=None`` or ``metadata=None`` clears it;
+        ``category=None``, ``compatibility=None`` or ``compatibility_notes=None``
+        derives it from ``output`` again."""
+        body = _update_body(
+            name, output, slug, description, metadata, category, compatibility, compatibility_notes
+        )
         return cast(Preset, self._client.request("PATCH", f"/v1/presets/{seg(id)}", json=body))
 
     def replace(
@@ -81,11 +147,16 @@ class Presets(SyncResource):
         slug: Optional[str] = None,
         description: Optional[str] = None,
         metadata: Optional[Dict[str, str]] = None,
+        category: Optional[PresetCategory] = None,
+        compatibility: Optional[List[Platform]] = None,
+        compatibility_notes: Optional[Dict[str, str]] = None,
     ) -> Preset:
         """Replace the preset (``PUT``). ``output`` is the whole spec: a field
         left out takes its default, as on create. ``description`` and
-        ``metadata`` left out are emptied; ``slug`` left out is kept."""
-        body = _body(name, output, slug, description, metadata)
+        ``metadata`` left out are emptied, ``category``, ``compatibility`` and
+        ``compatibility_notes`` left out are derived again; ``slug`` left out
+        is kept."""
+        body = _body(name, output, slug, description, metadata, category, compatibility, compatibility_notes)
         return cast(Preset, self._client.request("PUT", f"/v1/presets/{seg(id)}", json=body))
 
     def delete(self, id: str) -> None:
@@ -94,9 +165,15 @@ class Presets(SyncResource):
 
 class AsyncPresets(AsyncResource):
     async def list(
-        self, *, limit: Optional[int] = None, cursor: Optional[str] = None
+        self,
+        *,
+        limit: Optional[int] = None,
+        cursor: Optional[str] = None,
+        category: Union[PresetCategory, Sequence[PresetCategory], None] = None,
+        compatible_with: Union[Platform, Sequence[Platform], None] = None,
     ) -> AsyncPage[Preset]:
-        return await self._client.get_page("/v1/presets", {"limit": limit, "cursor": cursor})
+        params = _list_params(limit, cursor, category, compatible_with)
+        return await self._client.get_page("/v1/presets", params)
 
     async def create(
         self,
@@ -106,9 +183,12 @@ class AsyncPresets(AsyncResource):
         slug: Optional[str] = None,
         description: Optional[str] = None,
         metadata: Optional[Dict[str, str]] = None,
+        category: Optional[PresetCategory] = None,
+        compatibility: Optional[List[Platform]] = None,
+        compatibility_notes: Optional[Dict[str, str]] = None,
         idempotency_key: Optional[str] = None,
     ) -> Preset:
-        body = _body(name, output, slug, description, metadata)
+        body = _body(name, output, slug, description, metadata, category, compatibility, compatibility_notes)
         return cast(Preset, await self._client._create("/v1/presets", body, idempotency_key))
 
     async def retrieve(self, id_or_slug: str) -> Preset:
@@ -123,8 +203,13 @@ class AsyncPresets(AsyncResource):
         slug: Optional[str] = None,
         description: Optional[str] = NOT_GIVEN,
         metadata: Optional[Dict[str, str]] = NOT_GIVEN,
+        category: Optional[PresetCategory] = NOT_GIVEN,
+        compatibility: Optional[List[Platform]] = NOT_GIVEN,
+        compatibility_notes: Optional[Dict[str, str]] = NOT_GIVEN,
     ) -> Preset:
-        body = _update_body(name, output, slug, description, metadata)
+        body = _update_body(
+            name, output, slug, description, metadata, category, compatibility, compatibility_notes
+        )
         return cast(Preset, await self._client.request("PATCH", f"/v1/presets/{seg(id)}", json=body))
 
     async def replace(
@@ -136,8 +221,11 @@ class AsyncPresets(AsyncResource):
         slug: Optional[str] = None,
         description: Optional[str] = None,
         metadata: Optional[Dict[str, str]] = None,
+        category: Optional[PresetCategory] = None,
+        compatibility: Optional[List[Platform]] = None,
+        compatibility_notes: Optional[Dict[str, str]] = None,
     ) -> Preset:
-        body = _body(name, output, slug, description, metadata)
+        body = _body(name, output, slug, description, metadata, category, compatibility, compatibility_notes)
         return cast(Preset, await self._client.request("PUT", f"/v1/presets/{seg(id)}", json=body))
 
     async def delete(self, id: str) -> None:
