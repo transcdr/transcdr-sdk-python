@@ -276,6 +276,13 @@ class SyncAPIClient(BaseClient):
                 continue
             return self._handle(response)
 
+    def _create(self, path: str, json: Any, idempotency_key: Optional[str] = None, **kwargs: Any) -> Any:
+        """A create: ``POST`` with an ``Idempotency-Key`` (the caller's, or a
+        random one), so it is retried safely and a retry replays the first
+        response instead of creating a duplicate."""
+        key = idempotency_key or new_idempotency_key()
+        return self.request("POST", path, json=json, idempotency_key=key, **kwargs)
+
     def get_page(self, path: str, params: Params = None) -> SyncPage[Any]:
         base = dict(params or {})
 
@@ -364,6 +371,12 @@ class AsyncAPIClient(BaseClient):
                 attempt += 1
                 continue
             return self._handle(response)
+
+    async def _create(
+        self, path: str, json: Any, idempotency_key: Optional[str] = None, **kwargs: Any
+    ) -> Any:
+        key = idempotency_key or new_idempotency_key()
+        return await self.request("POST", path, json=json, idempotency_key=key, **kwargs)
 
     async def get_page(self, path: str, params: Params = None) -> AsyncPage[Any]:
         base = dict(params or {})

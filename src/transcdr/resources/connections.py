@@ -20,7 +20,7 @@ def _browse_params(
 def _update_body(
     name: Optional[str],
     config: Optional[Dict[str, Any]],
-    secrets: Optional[Dict[str, str]],
+    secrets: Optional[Dict[str, Optional[str]]],
     enabled: Optional[bool],
 ) -> Dict[str, Any]:
     return strip_none({"name": name, "enabled": enabled, "config": config, "secrets": secrets})
@@ -44,11 +44,12 @@ class Connections(SyncResource):
         kind: str,
         config: Dict[str, Any],
         secrets: Optional[Dict[str, str]] = None,
+        idempotency_key: Optional[str] = None,
     ) -> Connection:
         """Create a connection. It is tested when it is saved: the outcome is
         in ``status`` and ``last_error``. Secrets are write-only."""
         body = strip_none({"name": name, "kind": kind, "config": config, "secrets": secrets})
-        return cast(Connection, self._client.request("POST", "/v1/connections", json=body))
+        return cast(Connection, self._client._create("/v1/connections", body, idempotency_key))
 
     def retrieve(self, id: str) -> Connection:
         return cast(Connection, self._client.request("GET", f"/v1/connections/{seg(id)}"))
@@ -59,11 +60,11 @@ class Connections(SyncResource):
         *,
         name: Optional[str] = None,
         config: Optional[Dict[str, Any]] = None,
-        secrets: Optional[Dict[str, str]] = None,
+        secrets: Optional[Dict[str, Optional[str]]] = None,
         enabled: Optional[bool] = None,
     ) -> Connection:
         """``config`` merges into the existing one (a ``None`` value clears that
-        field). An omitted secret is kept; ``""`` clears it. ``enabled=True``
+        field). An omitted secret is kept; ``""`` or ``None`` (storage) clears it. ``enabled=True``
         turns a disabled connection back on (the failure count resets and it
         is tested again); ``enabled=False`` turns it off."""
         body = _update_body(name, config, secrets, enabled)
@@ -139,9 +140,10 @@ class AsyncConnections(AsyncResource):
         kind: str,
         config: Dict[str, Any],
         secrets: Optional[Dict[str, str]] = None,
+        idempotency_key: Optional[str] = None,
     ) -> Connection:
         body = strip_none({"name": name, "kind": kind, "config": config, "secrets": secrets})
-        return cast(Connection, await self._client.request("POST", "/v1/connections", json=body))
+        return cast(Connection, await self._client._create("/v1/connections", body, idempotency_key))
 
     async def retrieve(self, id: str) -> Connection:
         return cast(Connection, await self._client.request("GET", f"/v1/connections/{seg(id)}"))
@@ -152,7 +154,7 @@ class AsyncConnections(AsyncResource):
         *,
         name: Optional[str] = None,
         config: Optional[Dict[str, Any]] = None,
-        secrets: Optional[Dict[str, str]] = None,
+        secrets: Optional[Dict[str, Optional[str]]] = None,
         enabled: Optional[bool] = None,
     ) -> Connection:
         body = _update_body(name, config, secrets, enabled)

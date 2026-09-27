@@ -102,7 +102,13 @@ def test_members_create_for_existing_and_new_users(make_client):
 
 
 def test_members_leave(make_client):
-    me = {"user": {"id": "usr_1"}, "organization": {"id": "org_1"}, "organizations": [MEMBERSHIP]}
+    # A session's api_key is the session token itself (prefix tds_).
+    me = {
+        "user": {"id": "usr_1"},
+        "organization": {"id": "org_1"},
+        "organizations": [MEMBERSHIP],
+        "api_key": {"prefix": "tds_ab12"},
+    }
     rec = Recorder(json_response(200, me), json_response(204, None))
     make_client(rec).organization.members.leave()
     assert [path(rec, 0), path(rec, 1)] == ["GET /v1/me", "DELETE /v1/organization/members/usr_1"]
@@ -110,7 +116,7 @@ def test_members_leave(make_client):
 
 def test_members_leave_refuses_api_keys(make_client):
     # The API reports the key's owner as the user; the api_key field tells them apart.
-    me = {"user": {"id": "usr_1"}, "api_key": {"id": "key_1"}, "organizations": []}
+    me = {"user": {"id": "usr_1"}, "api_key": {"id": "key_1", "prefix": "tdk_live_ab12"}, "organizations": []}
     rec = Recorder(json_response(200, me))
     with pytest.raises(TranscdrError):
         make_client(rec).organization.members.leave()

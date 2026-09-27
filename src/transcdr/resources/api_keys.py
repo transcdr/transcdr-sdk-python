@@ -22,10 +22,15 @@ class ApiKeys(SyncResource):
         scopes: Optional[List[str]] = None,
         mode: Optional[str] = None,
         expires_at: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
     ) -> ApiKey:
         """Create a key. The returned ``secret`` is shown only this once."""
         body = strip_none({"name": name, "scopes": scopes, "mode": mode, "expires_at": expires_at})
-        return cast(ApiKey, self._client.request("POST", "/v1/api-keys", json=body))
+        return cast(ApiKey, self._client._create("/v1/api-keys", body, idempotency_key))
+
+    def retrieve(self, id: str) -> ApiKey:
+        """One key, as the list shows it (no ``secret``). 404 once revoked."""
+        return cast(ApiKey, self._client.request("GET", f"/v1/api-keys/{seg(id)}"))
 
     def delete(self, id: str) -> None:
         """Revoke a key."""
@@ -47,9 +52,13 @@ class AsyncApiKeys(AsyncResource):
         scopes: Optional[List[str]] = None,
         mode: Optional[str] = None,
         expires_at: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
     ) -> ApiKey:
         body = strip_none({"name": name, "scopes": scopes, "mode": mode, "expires_at": expires_at})
-        return cast(ApiKey, await self._client.request("POST", "/v1/api-keys", json=body))
+        return cast(ApiKey, await self._client._create("/v1/api-keys", body, idempotency_key))
+
+    async def retrieve(self, id: str) -> ApiKey:
+        return cast(ApiKey, await self._client.request("GET", f"/v1/api-keys/{seg(id)}"))
 
     async def delete(self, id: str) -> None:
         await self._client.request("DELETE", f"/v1/api-keys/{seg(id)}")

@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Mapping, Optional, Union, cast
 
 from .. import webhooks as _signature
 from .._base_client import path_segment as seg
-from .._base_client import strip_none
+from .._base_client import NOT_GIVEN, strip_none, strip_not_given
 from ..pagination import AsyncPage, SyncPage
 from ..types import Event, WebhookCheck, WebhookDelivery, WebhookEndpoint
 from ._base import AsyncResource, SyncResource
@@ -48,20 +48,22 @@ def _update_body(
     queue_url: Optional[str],
     aws: Optional[Mapping[str, Any]],
     events: Optional[List[str]],
-    description: Optional[str],
+    description: Any,
     enabled: Optional[bool],
 ) -> Dict[str, Any]:
-    return strip_none(
+    body = strip_none(
         {
             "url": url,
             "topic_arn": topic_arn,
             "queue_url": queue_url,
+            # Kept as given: None inside aws (endpoint, message_group_id) is sent as null.
             "aws": dict(aws) if aws is not None else None,
             "events": events,
-            "description": description,
             "enabled": enabled,
         }
     )
+    body.update(strip_not_given({"description": description}))
+    return body
 
 
 class _SignatureHelpers:
@@ -108,6 +110,7 @@ class Webhooks(SyncResource, _SignatureHelpers):
         connection_id: Optional[str] = None,
         events: Optional[List[str]] = None,
         description: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
     ) -> WebhookEndpoint:
         """Create a destination with exactly one target:
 
@@ -120,7 +123,7 @@ class Webhooks(SyncResource, _SignatureHelpers):
         "endpoint"?, "message_group_id"?}``. The returned ``secret`` is shown
         only on create and rotate."""
         body = _create_body(url, type, topic_arn, queue_url, aws, connection_id, events, description)
-        return cast(WebhookEndpoint, self._client.request("POST", "/v1/webhooks", json=body))
+        return cast(WebhookEndpoint, self._client._create("/v1/webhooks", body, idempotency_key))
 
     def retrieve(self, id: str) -> WebhookEndpoint:
         return cast(WebhookEndpoint, self._client.request("GET", f"/v1/webhooks/{seg(id)}"))
@@ -134,11 +137,12 @@ class Webhooks(SyncResource, _SignatureHelpers):
         queue_url: Optional[str] = None,
         aws: Optional[Mapping[str, Any]] = None,
         events: Optional[List[str]] = None,
-        description: Optional[str] = None,
+        description: Optional[str] = NOT_GIVEN,
         enabled: Optional[bool] = None,
     ) -> WebhookEndpoint:
-        """The type cannot change. In ``aws`` an omitted ``secret_access_key``
-        keeps the stored one."""
+        """The type cannot change. A field left out is kept; ``description=None``
+        clears it. In ``aws`` an omitted ``secret_access_key`` keeps the stored
+        one, and ``None`` clears ``endpoint`` or ``message_group_id``."""
         body = _update_body(url, topic_arn, queue_url, aws, events, description, enabled)
         return cast(
             WebhookEndpoint, self._client.request("PATCH", f"/v1/webhooks/{seg(id)}", json=body)
@@ -208,9 +212,10 @@ class AsyncWebhooks(AsyncResource, _SignatureHelpers):
         connection_id: Optional[str] = None,
         events: Optional[List[str]] = None,
         description: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
     ) -> WebhookEndpoint:
         body = _create_body(url, type, topic_arn, queue_url, aws, connection_id, events, description)
-        return cast(WebhookEndpoint, await self._client.request("POST", "/v1/webhooks", json=body))
+        return cast(WebhookEndpoint, await self._client._create("/v1/webhooks", body, idempotency_key))
 
     async def retrieve(self, id: str) -> WebhookEndpoint:
         return cast(WebhookEndpoint, await self._client.request("GET", f"/v1/webhooks/{seg(id)}"))
@@ -224,7 +229,7 @@ class AsyncWebhooks(AsyncResource, _SignatureHelpers):
         queue_url: Optional[str] = None,
         aws: Optional[Mapping[str, Any]] = None,
         events: Optional[List[str]] = None,
-        description: Optional[str] = None,
+        description: Optional[str] = NOT_GIVEN,
         enabled: Optional[bool] = None,
     ) -> WebhookEndpoint:
         body = _update_body(url, topic_arn, queue_url, aws, events, description, enabled)

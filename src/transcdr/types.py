@@ -393,6 +393,17 @@ class Upload(TypedDict, total=False):
     expires_at: str
 
 
+class SecretFingerprint(TypedDict):
+    """A write-only secret that is set. The fingerprint changes when the
+    secret changes and says nothing else (it is keyed by the server and bound
+    to the object and field): compare it with an earlier read to notice a
+    change made elsewhere."""
+
+    set: bool
+    #: ``hmac-sha256:<12 hex>``.
+    fingerprint: str
+
+
 # --------------------------------------------------------------------------
 # Presets
 # --------------------------------------------------------------------------
@@ -464,6 +475,9 @@ class WebhookEndpoint(TypedDict, total=False):
     enabled: bool
     #: Only returned on create and rotate.
     secret: str
+    #: The write-only secrets that are set, with their fingerprints:
+    #: ``secret`` and, for sns/sqs, ``secret_access_key``.
+    secrets: Dict[str, SecretFingerprint]
     created_at: str
     updated_at: str
     last_delivery_at: Optional[str]
@@ -535,6 +549,8 @@ class Connection(TypedDict, total=False):
     config: Dict[str, Any]
     #: Names of the secrets that are set; secret values are write-only.
     secrets_set: List[str]
+    #: The secrets that are set, with their fingerprints.
+    secrets: Dict[str, SecretFingerprint]
     capabilities: ConnectionCapabilities
     status: Literal["untested", "ok", "error"]
     #: ``storage`` or ``messaging``.
@@ -703,6 +719,8 @@ class ApiKey(TypedDict, total=False):
     mode: Literal["live", "test"]
     last_used_at: Optional[str]
     expires_at: Optional[str]
+    #: Always ``None`` on keys the API returns: a revoked key is 404.
+    revoked_at: Optional[str]
     created_at: str
     #: Only returned on create.
     secret: str
@@ -751,15 +769,29 @@ class Membership(TypedDict, total=False):
 
 
 class Me(TypedDict, total=False):
+    object: Literal["me"]
+    #: The signed-in user, or for an API key the user who created the key. A
+    #: user does not mean a session: use :func:`is_session`.
     user: Optional[User]
     organization: Organization
-    #: Every organization the user belongs to; empty for API keys.
+    #: Every organization the user belongs to (sessions); always empty for API keys.
     organizations: List[Membership]
-    #: The key in use, for API keys.
+    #: The token presented: a session's ``prefix`` starts ``tds_``, an API
+    #: key's ``tdk_live_`` or ``tdk_test_``.
     api_key: Optional[ApiKey]
     scopes: List[str]
     #: ``False`` for test-mode keys.
     livemode: bool
+
+
+def is_session(me: Me) -> bool:
+    """Whether ``me`` describes a session token (a signed-in user) rather
+    than an API key."""
+    prefix = (me.get("api_key") or {}).get("prefix")
+    if prefix:
+        return prefix.startswith("tds_")
+    # Older servers: a session lists its memberships (never empty); an API key none.
+    return bool(me.get("organizations"))
 
 
 class AuthResponse(TypedDict, total=False):

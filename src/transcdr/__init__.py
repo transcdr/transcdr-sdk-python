@@ -28,6 +28,7 @@ from ._errors import (
     WaitTimeoutError,
 )
 from ._version import __version__
+from .types import is_session
 from .pagination import AsyncPage, SyncPage
 
 __all__ = [
@@ -42,6 +43,7 @@ __all__ = [
     "DEFAULT_TIMEOUT",
     "DEFAULT_MAX_RETRIES",
     "NOT_GIVEN",
+    "is_session",
     "TranscdrError",
     "APIConnectionError",
     "APITimeoutError",

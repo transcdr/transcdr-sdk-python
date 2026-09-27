@@ -23,10 +23,11 @@ class Assets(SyncResource):
         url: str,
         filename: Optional[str] = None,
         metadata: Optional[Dict[str, str]] = None,
+        idempotency_key: Optional[str] = None,
     ) -> Asset:
         """Link a remote file by URL; jobs read the URL directly."""
         body = strip_none({"url": url, "filename": filename, "metadata": metadata})
-        return cast(Asset, self._client.request("POST", "/v1/assets", json=body))
+        return cast(Asset, self._client._create("/v1/assets", body, idempotency_key))
 
     def retrieve(self, id: str) -> Asset:
         return cast(Asset, self._client.request("GET", f"/v1/assets/{seg(id)}"))
@@ -59,9 +60,10 @@ class AsyncAssets(AsyncResource):
         url: str,
         filename: Optional[str] = None,
         metadata: Optional[Dict[str, str]] = None,
+        idempotency_key: Optional[str] = None,
     ) -> Asset:
         body = strip_none({"url": url, "filename": filename, "metadata": metadata})
-        return cast(Asset, await self._client.request("POST", "/v1/assets", json=body))
+        return cast(Asset, await self._client._create("/v1/assets", body, idempotency_key))
 
     async def retrieve(self, id: str) -> Asset:
         return cast(Asset, await self._client.request("GET", f"/v1/assets/{seg(id)}"))

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Mapping, Optional, cast
 
 from .._base_client import path_segment as seg
-from .._base_client import strip_none
+from .._base_client import NOT_GIVEN
 from ..pagination import AsyncPage, SyncPage
 from ..types import (
     Automation,
@@ -33,26 +33,33 @@ def _body(
     metadata: Optional[Dict[str, str]],
     webhook_url: Optional[str],
     enabled: Optional[bool],
-    trigger_connection_id: Optional[str] = None,
+    trigger_connection_id: Any = None,
+    clearing: bool = False,
 ) -> Dict[str, Any]:
-    return strip_none(
-        {
-            "name": name,
-            "enabled": enabled,
-            "trigger": trigger,
-            "trigger_connection_id": trigger_connection_id,
-            "source": source,
-            "poll_interval_seconds": poll_interval_seconds,
-            "settle_seconds": settle_seconds,
-            "preset": preset,
-            "output": output,
-            "destination": destination,
-            "after_success": after_success,
-            "priority": priority,
-            "metadata": metadata,
-            "webhook_url": webhook_url,
-        }
-    )
+    body = {
+        "name": name,
+        "enabled": enabled,
+        "trigger": trigger,
+        "trigger_connection_id": trigger_connection_id,
+        "source": source,
+        "poll_interval_seconds": poll_interval_seconds,
+        "settle_seconds": settle_seconds,
+        "preset": preset,
+        "output": output,
+        "destination": destination,
+        "after_success": after_success,
+        "priority": priority,
+        "metadata": metadata,
+        "webhook_url": webhook_url,
+    }
+    # On update, None is sent as null (clearing the field) where the API allows it.
+    keep_none = _CLEARABLE if clearing else frozenset()
+    return {k: v for k, v in body.items() if v is not NOT_GIVEN and (v is not None or k in keep_none)}
+
+
+_CLEARABLE = frozenset(
+    {"preset", "output", "destination", "metadata", "webhook_url", "trigger_connection_id"}
+)
 
 
 def _trigger_body(path: Optional[str], paths: Optional[List[str]]) -> Mapping[str, Any]:
@@ -71,8 +78,9 @@ class Automations(SyncResource):
     or through SNS, EventBridge events and job requests). Each object version
     is processed exactly once.
 
-    To clear a value on ``update``: ``preset=""``, ``webhook_url=""``,
-    ``trigger_connection_id=""``, ``output={}``, ``metadata={}``."""
+    On ``update`` a field left out is kept, and ``None`` clears ``preset``,
+    ``output``, ``destination``, ``metadata``, ``webhook_url`` and
+    ``trigger_connection_id``."""
 
     def list(
         self, *, limit: Optional[int] = None, cursor: Optional[str] = None
@@ -96,13 +104,14 @@ class Automations(SyncResource):
         webhook_url: Optional[str] = None,
         enabled: Optional[bool] = None,
         trigger_connection_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
     ) -> Automation:
         body = _body(
             name, source, trigger, preset, output, destination, poll_interval_seconds,
             settle_seconds, after_success, priority, metadata, webhook_url, enabled,
             trigger_connection_id,
         )  # fmt: skip
-        return cast(Automation, self._client.request("POST", "/v1/automations", json=body))
+        return cast(Automation, self._client._create("/v1/automations", body, idempotency_key))
 
     def retrieve(self, id: str) -> Automation:
         return cast(Automation, self._client.request("GET", f"/v1/automations/{seg(id)}"))
@@ -114,22 +123,22 @@ class Automations(SyncResource):
         name: Optional[str] = None,
         source: Optional[AutomationSource] = None,
         trigger: Optional[str] = None,
-        preset: Optional[str] = None,
-        output: Optional[OutputSpec] = None,
-        destination: Optional[Destination] = None,
+        preset: Optional[str] = NOT_GIVEN,
+        output: Optional[OutputSpec] = NOT_GIVEN,
+        destination: Optional[Destination] = NOT_GIVEN,
         poll_interval_seconds: Optional[int] = None,
         settle_seconds: Optional[int] = None,
         after_success: Optional[str] = None,
         priority: Optional[str] = None,
-        metadata: Optional[Dict[str, str]] = None,
-        webhook_url: Optional[str] = None,
+        metadata: Optional[Dict[str, str]] = NOT_GIVEN,
+        webhook_url: Optional[str] = NOT_GIVEN,
         enabled: Optional[bool] = None,
-        trigger_connection_id: Optional[str] = None,
+        trigger_connection_id: Optional[str] = NOT_GIVEN,
     ) -> Automation:
         body = _body(
             name, source, trigger, preset, output, destination, poll_interval_seconds,
             settle_seconds, after_success, priority, metadata, webhook_url, enabled,
-            trigger_connection_id,
+            trigger_connection_id, clearing=True,
         )  # fmt: skip
         return cast(
             Automation, self._client.request("PATCH", f"/v1/automations/{seg(id)}", json=body)
@@ -195,13 +204,14 @@ class AsyncAutomations(AsyncResource):
         webhook_url: Optional[str] = None,
         enabled: Optional[bool] = None,
         trigger_connection_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
     ) -> Automation:
         body = _body(
             name, source, trigger, preset, output, destination, poll_interval_seconds,
             settle_seconds, after_success, priority, metadata, webhook_url, enabled,
             trigger_connection_id,
         )  # fmt: skip
-        return cast(Automation, await self._client.request("POST", "/v1/automations", json=body))
+        return cast(Automation, await self._client._create("/v1/automations", body, idempotency_key))
 
     async def retrieve(self, id: str) -> Automation:
         return cast(Automation, await self._client.request("GET", f"/v1/automations/{seg(id)}"))
@@ -213,22 +223,22 @@ class AsyncAutomations(AsyncResource):
         name: Optional[str] = None,
         source: Optional[AutomationSource] = None,
         trigger: Optional[str] = None,
-        preset: Optional[str] = None,
-        output: Optional[OutputSpec] = None,
-        destination: Optional[Destination] = None,
+        preset: Optional[str] = NOT_GIVEN,
+        output: Optional[OutputSpec] = NOT_GIVEN,
+        destination: Optional[Destination] = NOT_GIVEN,
         poll_interval_seconds: Optional[int] = None,
         settle_seconds: Optional[int] = None,
         after_success: Optional[str] = None,
         priority: Optional[str] = None,
-        metadata: Optional[Dict[str, str]] = None,
-        webhook_url: Optional[str] = None,
+        metadata: Optional[Dict[str, str]] = NOT_GIVEN,
+        webhook_url: Optional[str] = NOT_GIVEN,
         enabled: Optional[bool] = None,
-        trigger_connection_id: Optional[str] = None,
+        trigger_connection_id: Optional[str] = NOT_GIVEN,
     ) -> Automation:
         body = _body(
             name, source, trigger, preset, output, destination, poll_interval_seconds,
             settle_seconds, after_success, priority, metadata, webhook_url, enabled,
-            trigger_connection_id,
+            trigger_connection_id, clearing=True,
         )  # fmt: skip
         return cast(
             Automation,

@@ -3,10 +3,10 @@ from __future__ import annotations
 from typing import Optional, cast
 
 from .._base_client import path_segment as seg
-from .._base_client import strip_none
+from .._base_client import NOT_GIVEN, strip_none, strip_not_given
 from ..pagination import AsyncPage, SyncPage
 from .._errors import TranscdrError
-from ..types import AuthResponse, Me, Membership, Organization, User
+from ..types import AuthResponse, Me, Membership, Organization, User, is_session
 from ._base import AsyncResource, SyncResource
 
 __all__ = [
@@ -32,6 +32,7 @@ class Members(SyncResource):
         role: str,
         name: Optional[str] = None,
         password: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
     ) -> User:
         """Add a member (owner/admin only). ``role``: ``owner`` | ``admin`` | ``member``.
 
@@ -39,7 +40,7 @@ class Members(SyncResource):
         and ``password`` are refused); an unknown email creates the user, and
         then ``name`` and ``password`` are required."""
         body = strip_none({"email": email, "role": role, "name": name, "password": password})
-        return cast(User, self._client.request("POST", "/v1/organization/members", json=body))
+        return cast(User, self._client._create("/v1/organization/members", body, idempotency_key))
 
     def update(self, id: str, *, role: str) -> User:
         return cast(
@@ -59,9 +60,9 @@ class Members(SyncResource):
 
 def _own_user_id(me: Me) -> str:
     user = me.get("user")
-    # An API key has no membership of its own to leave, even when the API
-    # reports the user who created it.
-    if not user or me.get("api_key"):
+    # An API key has no membership of its own to leave, even though the API
+    # reports the user who created it. (A session has an api_key too: tds_.)
+    if not user or not is_session(me):
         raise TranscdrError("members.leave() needs a session token, not an API key.")
     return user["id"]
 
@@ -72,10 +73,10 @@ class Organizations(SyncResource):
     def list(self) -> SyncPage[Membership]:
         return self._client.get_page("/v1/organizations")
 
-    def create(self, *, name: str) -> AuthResponse:
+    def create(self, *, name: str, idempotency_key: Optional[str] = None) -> AuthResponse:
         """Create an organization owned by the caller. Returns a session token
         in it; the current token keeps working."""
-        return cast(AuthResponse, self._client.request("POST", "/v1/organizations", json={"name": name}))
+        return cast(AuthResponse, self._client._create("/v1/organizations", {"name": name}, idempotency_key))
 
 
 class OrganizationResource(SyncResource):
@@ -86,8 +87,11 @@ class OrganizationResource(SyncResource):
     def retrieve(self) -> Organization:
         return cast(Organization, self._client.request("GET", "/v1/organization"))
 
-    def update(self, *, name: Optional[str] = None, billing_email: Optional[str] = None) -> Organization:
-        body = strip_none({"name": name, "billing_email": billing_email})
+    def update(
+        self, *, name: Optional[str] = None, billing_email: Optional[str] = NOT_GIVEN
+    ) -> Organization:
+        """``billing_email=None`` (or ``""``) clears it."""
+        body = {**strip_none({"name": name}), **strip_not_given({"billing_email": billing_email})}
         return cast(Organization, self._client.request("PATCH", "/v1/organization", json=body))
 
     def rotate_job_webhook_secret(self) -> Organization:
@@ -113,9 +117,10 @@ class AsyncMembers(AsyncResource):
         role: str,
         name: Optional[str] = None,
         password: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
     ) -> User:
         body = strip_none({"email": email, "role": role, "name": name, "password": password})
-        return cast(User, await self._client.request("POST", "/v1/organization/members", json=body))
+        return cast(User, await self._client._create("/v1/organization/members", body, idempotency_key))
 
     async def update(self, id: str, *, role: str) -> User:
         return cast(
@@ -137,9 +142,9 @@ class AsyncOrganizations(AsyncResource):
     async def list(self) -> AsyncPage[Membership]:
         return await self._client.get_page("/v1/organizations")
 
-    async def create(self, *, name: str) -> AuthResponse:
+    async def create(self, *, name: str, idempotency_key: Optional[str] = None) -> AuthResponse:
         return cast(
-            AuthResponse, await self._client.request("POST", "/v1/organizations", json={"name": name})
+            AuthResponse, await self._client._create("/v1/organizations", {"name": name}, idempotency_key)
         )
 
 
@@ -152,9 +157,9 @@ class AsyncOrganizationResource(AsyncResource):
         return cast(Organization, await self._client.request("GET", "/v1/organization"))
 
     async def update(
-        self, *, name: Optional[str] = None, billing_email: Optional[str] = None
+        self, *, name: Optional[str] = None, billing_email: Optional[str] = NOT_GIVEN
     ) -> Organization:
-        body = strip_none({"name": name, "billing_email": billing_email})
+        body = {**strip_none({"name": name}), **strip_not_given({"billing_email": billing_email})}
         return cast(Organization, await self._client.request("PATCH", "/v1/organization", json=body))
 
     async def rotate_job_webhook_secret(self) -> Organization:

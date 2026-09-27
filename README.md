@@ -18,7 +18,7 @@ Requires Python 3.9+. The only dependency is [`httpx`](https://www.python-httpx.
 The SDK is installed from this repository (it is not on PyPI yet):
 
 ```sh
-pip install "transcdr @ git+https://github.com/transcdr/transcdr-sdk-python@v0.1.0"
+pip install "transcdr @ git+https://github.com/transcdr/transcdr-sdk-python@v0.2.0"
 ```
 
 ## Quickstart
@@ -112,20 +112,20 @@ asyncio.run(main())
 
 ## Resources
 
-Every method has an async twin on `AsyncTranscdr`. The surface matches the TypeScript SDK 0.3.0.
+Every method has an async twin on `AsyncTranscdr`. The surface matches the TypeScript SDK 0.4.0.
 
 | Attribute | Methods |
 |---|---|
 | `client.auth` | `register`, `login` (with `organization_id=`), `switch`, `logout`, `change_password`, `me` |
 | `client.organization` | `retrieve`, `update`, `rotate_job_webhook_secret`; `.members`: `list`, `create`, `update`, `delete`, `leave` |
 | `client.organizations` | `list`, `create` (the user's organizations; session tokens only) |
-| `client.api_keys` | `list`, `create`, `delete` (`revoke`) |
+| `client.api_keys` | `list`, `retrieve` (404 once revoked), `create`, `delete` (`revoke`) |
 | `client.uploads` | `create`, `complete`, `upload_file` |
 | `client.assets` | `list`, `create` (import by URL), `retrieve`, `delete`, `download_url`, `content_url` |
 | `client.jobs` | `create`, `list`, `retrieve`, `cancel`, `retry`, `delete`, `events`, `outputs`, `output_url`, `file_url`, `deliveries`, `deliver`, `wait` |
 | `client.deliveries` | `retry` |
 | `client.probe` | `create(input=..., wait=True)` |
-| `client.presets` | `list`, `create`, `retrieve`, `update`, `delete` |
+| `client.presets` | `list`, `create`, `retrieve`, `update` (PATCH: `output` merges), `replace` (PUT: the whole preset), `delete` |
 | `client.webhooks` | `list`, `create` (HTTPS, SNS, SQS or a connection), `retrieve`, `update`, `delete`, `rotate_secret`, `test`, `check`, `check_saved`, `deliveries`, `redeliver`, `verify_signature`, `verify_sns_sqs_signature`, `construct_event` |
 | `client.connections` | `list`, `create`, `retrieve`, `update`, `enable`, `disable`, `delete`, `test`, `check`, `check_saved`, `browse` |
 | `client.automations` | `list`, `create`, `retrieve`, `update`, `delete`, `run`, `trigger`, `rotate_hook_token`, `items` |
@@ -229,14 +229,39 @@ for point in report["points"]:
 Requests are retried up to `max_retries` times (default 2) on connection errors, 408, 429 and
 5xx, with exponential backoff and jitter (a short `Retry-After` is honoured). Only requests that
 are safe to replay are retried: `GET`, `PUT`, `DELETE`, and `POST`s that carry an
-`Idempotency-Key`. `jobs.create` and `uploads.create` generate a UUID key automatically, so a
-retry never creates a duplicate job; pass `idempotency_key=` to control it yourself (e.g. to
-make your own job submission idempotent across process restarts).
+`Idempotency-Key`. Every create (`jobs`, `probe`, `uploads`, `assets`, `presets`, `webhooks`,
+`connections`, `automations`, `api_keys`, `organization.members`, `organizations`) sends a UUID
+key, so a retry never creates a duplicate: the API replays the first response (with
+`Idempotent-Replayed: true`). Keys last 24 hours per organization. Pass `idempotency_key=` to
+control it yourself (e.g. to make your own job submission idempotent across process restarts).
+The same key with a different body raises a 409 `idempotency_key_reused`; only a successful
+create is remembered, so after an error the key can be used again.
 
 ```python
 client = Transcdr(timeout=30, max_retries=4)
 client.with_options(max_retries=0).jobs.retrieve("job_...")
 ```
+
+## Updating: left out, or None
+
+`update` methods send `PATCH`: an argument left out keeps its value, and `None` clears it. That
+covers an automation's `destination`, `preset`, `output`, `metadata`, `webhook_url` and
+`trigger_connection_id`; a webhook's `description` (and `endpoint` / `message_group_id` inside
+`aws`); a connection's `config` fields and storage `secrets`; a preset's `description` and
+`metadata`; and the organization's `billing_email`. (On `create`, `None` still means "not
+given".)
+
+```python
+client.automations.update("aut_...", destination=None, webhook_url=None)
+client.presets.replace("pre_...", name="Web 1080p", output={"codec": "av1"})  # PUT: the whole preset
+```
+
+Connections and webhooks never return their secrets. `secrets` lists the ones that are set, each
+with a `fingerprint` (`hmac-sha256:<12 hex>`) that changes when the secret does: compare it with
+an earlier read to notice a change made elsewhere.
+
+`client.auth.me()` returns a `user` for API keys too (the user who created the key); use
+`transcdr.is_session(me)` to tell a session (`api_key.prefix` starts `tds_`) from an API key.
 
 ## Webhooks
 
@@ -344,7 +369,7 @@ read inputs from it and deliver outputs to it. A **messaging connection** (`sqs`
 `webhook`) receives events, and an `sqs` connection can trigger queue automations. Connections
 are tested when they are saved and on every update; the outcome is in `status` and `last_error`.
 Secret values are write-only (the API returns only their names in `secrets_set`). On `update`,
-`config` merges (a `None` value clears that field), an omitted secret is kept, and `""` clears it.
+`config` merges (a `None` value clears that field), an omitted secret is kept, and `""` or `None` clears it.
 
 A connection that keeps failing is turned off (`enabled: False`, with `disabled_reason`), and
 anything using it is refused until `client.connections.enable(id)` turns it back on.
@@ -572,8 +597,8 @@ automation = client.automations.create(
 client.automations.run(automation["id"])   # read one batch now -> messages_received, messages_deleted, jobs_created
 ```
 
-To clear a value with `update`: `preset=""`, `webhook_url=""`, `trigger_connection_id=""`,
-`output={}` or `metadata={}`.
+To clear a value with `update`, pass `None`: `preset=None`, `webhook_url=None`,
+`trigger_connection_id=None`, `destination=None`, `output=None` or `metadata=None`.
 
 ## Organizations
 

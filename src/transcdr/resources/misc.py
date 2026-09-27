@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, Mapping, Optional, Union, cast
 
 from .._base_client import NOT_GIVEN
+from .._base_client import new_idempotency_key
 from .._base_client import path_segment as seg
 from ..pagination import AsyncPage, SyncPage
 from ..types import (
@@ -88,7 +89,13 @@ def _inputs_params(from_: Any, to: Any) -> Mapping[str, Any]:
 
 
 class Probe(SyncResource):
-    def create(self, *, input: Union[str, Mapping[str, Any]], wait: bool = False) -> Job:
+    def create(
+        self,
+        *,
+        input: Union[str, Mapping[str, Any]],
+        wait: bool = False,
+        idempotency_key: Optional[str] = None,
+    ) -> Job:
         """Probe an input without transcoding (a ``kind: probe`` job).
 
         With ``wait=True`` the call blocks up to 60 s and the job's
@@ -99,6 +106,7 @@ class Probe(SyncResource):
                 "POST",
                 "/v1/probe",
                 json={"input": coerce_input(input)},
+                idempotency_key=idempotency_key or new_idempotency_key(),
                 params={"wait": True} if wait else None,
                 timeout=_probe_timeout(self._client.timeout, wait),
             ),
@@ -216,13 +224,20 @@ class StatsResource(SyncResource):
 
 
 class AsyncProbe(AsyncResource):
-    async def create(self, *, input: Union[str, Mapping[str, Any]], wait: bool = False) -> Job:
+    async def create(
+        self,
+        *,
+        input: Union[str, Mapping[str, Any]],
+        wait: bool = False,
+        idempotency_key: Optional[str] = None,
+    ) -> Job:
         return cast(
             Job,
             await self._client.request(
                 "POST",
                 "/v1/probe",
                 json={"input": coerce_input(input)},
+                idempotency_key=idempotency_key or new_idempotency_key(),
                 params={"wait": True} if wait else None,
                 timeout=_probe_timeout(self._client.timeout, wait),
             ),
