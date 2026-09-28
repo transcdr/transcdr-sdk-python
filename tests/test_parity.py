@@ -329,6 +329,8 @@ def test_aac_and_lossless_audio_round_trip(make_client):
         {"mode": "audio", "audio": {"mode": "alac", "bit_depth": "16", "container": "auto"}},
         {"mode": "single", "audio": {"mode": "flac", "bit_depth": "source", "flac_compression": "fast"}},
         {"mode": "hls", "audio": {"mode": "aac", "channels": "5.1", "stereo_fallback": True}},
+        {"mode": "single", "audio": {"mode": "opus", "channels": "stereo", "he_aac": "passthrough"}},
+        {"mode": "audio", "audio": {"mode": "flac", "container": "flac", "he_aac": "core"}},
     ]
     for output in outputs:
         returned = {"id": "job_1", "object": "job", "status": "queued", "output": output}
@@ -362,6 +364,15 @@ def test_fit_and_upscale_round_trip(make_client):
     assert job["input_info"]["display_width"] == 1024
     assert get_args(Fit) == ("contain", "cover", "pad", "stretch")
     assert get_args(Orientation) == ("auto", "fixed")
+
+
+def test_he_aac_literal():
+    from typing import get_args, get_type_hints
+
+    from transcdr.types import AudioSettings, HeAac
+
+    assert get_args(HeAac) == ("auto", "passthrough", "core")
+    assert get_type_hints(AudioSettings)["he_aac"] == HeAac
 
 
 def test_lossless_literals():

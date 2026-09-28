@@ -139,6 +139,15 @@ client.jobs.create(
   at 32k, 40k, 48k, 56k, 64k, 80k, 96k, 112k, 128k, 160k, 192k, 224k, 256k or 320k (default 128k
   stereo, 64k mono).
 
+AAC sources are decoded, so they can be downmixed or made Opus, MP3, FLAC or ALAC; they still
+pass through wherever nothing asks for a change. HE-AAC is decoded only as its AAC-LC core (no
+spectral band replication or parametric stereo: half the rate, less bandwidth), and
+`audio.he_aac` (`transcdr.types.HeAac`) says what an HE-AAC source becomes: `"auto"` (the
+default) passes it through when only a codec change is asked and decodes its core when the job
+needs PCM (a downmix, an `.mp3` or `.flac` file); `"passthrough"` never decodes it, failing a
+job that would need it; `"core"` decodes its core whenever another codec is asked. AAC-LC
+sources are decoded in full whatever it says.
+
 `"mode": "audio"` writes the audio alone as one file (label `audio`, width and height 0), billed
 per output minute at the SD rate. `audio.container` picks the file: `"auto"` (the default)
 follows the codec, a `.flac` for FLAC, an `.m4a` for ALAC and an `.mp3` otherwise (`"auto"` audio
@@ -169,6 +178,12 @@ job = client.jobs.create(
 job = client.jobs.create(
     input="ast_...",
     output={"mode": "audio", "audio": {"mode": "flac", "bit_depth": "24", "flac_compression": "best"}},
+)
+
+# Stereo Opus from any source, never decoding an HE-AAC one to its core.
+job = client.jobs.create(
+    input="ast_...",
+    output={"codec": "h264", "audio": {"mode": "opus", "channels": "stereo", "he_aac": "passthrough"}},
 )
 
 # Surround AAC in HLS with a stereo rendition beside it.

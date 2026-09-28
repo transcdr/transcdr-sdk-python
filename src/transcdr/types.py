@@ -22,6 +22,7 @@ __all__ = [
     "AudioBitDepth",
     "FlacCompression",
     "AudioContainer",
+    "HeAac",
     "Fit",
     "Orientation",
     "Rendition",
@@ -155,6 +156,15 @@ FlacCompression = Literal["fast", "default", "best"]
 #: is then MP3). ``m4a`` holds any codec (``auto`` audio in an ``.m4a`` is
 #: Opus); ``flac`` holds FLAC only and ``mp3`` MP3 only.
 AudioContainer = Literal["auto", "mp3", "flac", "m4a"]
+#: What an HE-AAC (or HE-AAC v2) source becomes. HE-AAC is decoded only as
+#: its AAC-LC core: spectral band replication and parametric stereo are not
+#: decoded, so the core has half the stream's rate, less bandwidth and, for
+#: v2, one channel. ``auto`` (the default) passes it through when only a
+#: codec change is asked and decodes its core when the job needs PCM (a
+#: downmix, an ``.mp3`` or ``.flac`` file); ``passthrough`` never decodes it,
+#: and a job that would need it decoded fails; ``core`` decodes its core
+#: whenever another codec is asked. AAC-LC is decoded in full regardless.
+HeAac = Literal["auto", "passthrough", "core"]
 #: How the video meets a rendition's box. ``contain`` (the default) keeps its
 #: shape inside the box; ``cover`` fills the box and centre-crops; ``pad``
 #: keeps its shape and adds black bars to exactly the box; ``stretch``
@@ -235,6 +245,8 @@ class AudioSettings(TypedDict, total=False):
     flac_compression: FlacCompression
     #: Mode ``audio`` only: the file the output is. Left out, ``auto``.
     container: AudioContainer
+    #: What an HE-AAC source becomes. Left out, ``auto``. Not with ``drop``.
+    he_aac: HeAac
 
 
 class Trim(TypedDict, total=False):
