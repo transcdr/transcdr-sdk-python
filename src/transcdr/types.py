@@ -19,6 +19,9 @@ __all__ = [
     "Mode",
     "AudioMode",
     "AudioChannels",
+    "AudioBitDepth",
+    "FlacCompression",
+    "AudioContainer",
     "Rendition",
     "Ladder",
     "Quality",
@@ -126,14 +129,30 @@ JobStatus = Literal["queued", "scheduled", "running", "uploading", "completed", 
 Stage = Literal["waiting", "fetching", "probing", "encoding", "uploading", "done"]
 Codec = Literal["av1", "h264", "h265"]
 #: ``single`` (one MP4), ``hls`` (an adaptive ladder) or ``audio`` (the audio
-#: alone, one ``.mp3`` file).
+#: alone as one file: an ``.mp3``, ``.flac`` or ``.m4a``; see
+#: ``AudioSettings.container``).
 Mode = Literal["single", "hls", "audio"]
-#: ``mp3`` is constant bit rate, stereo at most, in a single MP4 or audio-only
-#: output (not HLS).
-AudioMode = Literal["auto", "opus", "mp3", "drop"]
+#: ``auto`` passes compatible audio through and transcodes the rest (to Opus,
+#: or to MP3 in an audio-only ``.mp3``). ``aac`` is AAC-LC, the choice that
+#: plays on the most devices (an AAC source passes through). ``mp3`` is
+#: constant bit rate, stereo at most, in a single MP4 or audio-only output
+#: (not HLS). ``flac`` and ``alac`` are lossless (a source already in that
+#: codec is copied) and take no bitrate.
+AudioMode = Literal["auto", "opus", "mp3", "aac", "flac", "alac", "drop"]
 #: ``source`` keeps the source's layout; the rest downmix and never upmix.
 #: MP3 carries ``source``, ``mono`` or ``stereo`` only.
 AudioChannels = Literal["source", "mono", "stereo", "5.1", "7.1"]
+#: FLAC and ALAC sample depth. ``source`` (the default) is 16-bit for a 16-bit
+#: or lossy source, 24-bit for a deeper one.
+AudioBitDepth = Literal["source", "16", "24"]
+#: FLAC compression effort: the same audio either way, a smaller file for
+#: more work. Default ``default``.
+FlacCompression = Literal["fast", "default", "best"]
+#: The file audio-only output is. ``auto`` (the default) follows the codec:
+#: ``.flac`` for FLAC, ``.m4a`` for ALAC, ``.mp3`` otherwise (``auto`` audio
+#: is then MP3). ``m4a`` holds any codec (``auto`` audio in an ``.m4a`` is
+#: Opus); ``flac`` holds FLAC only and ``mp3`` MP3 only.
+AudioContainer = Literal["auto", "mp3", "flac", "m4a"]
 
 #: Statuses after which a job no longer changes on its own.
 TERMINAL_JOB_STATUSES = frozenset({"completed", "failed", "canceled"})
@@ -177,13 +196,21 @@ class AudioSettings(TypedDict, total=False):
     mode: AudioMode
     #: e.g. ``"128k"`` (6k to 512k). MP3 takes 32k, 40k, 48k, 56k, 64k, 80k,
     #: 96k, 112k, 128k, 160k, 192k, 224k, 256k or 320k (default 128k stereo,
-    #: 64k mono).
+    #: 64k mono). AAC takes 8k to 288k per main channel (the LFE does not
+    #: count; default 64k mono, 128k stereo, 384k 5.1, 512k 7.1). Not with
+    #: ``flac`` or ``alac``.
     bitrate: Optional[str]
     #: Channel layout; left out, the source's.
     channels: AudioChannels
     #: HLS with surround audio: also add a stereo rendition to the same audio
     #: group. Default False.
     stereo_fallback: bool
+    #: ``flac`` and ``alac`` only: the output's sample depth.
+    bit_depth: AudioBitDepth
+    #: ``flac`` only: the compression effort.
+    flac_compression: FlacCompression
+    #: Mode ``audio`` only: the file the output is. Left out, ``auto``.
+    container: AudioContainer
 
 
 class Trim(TypedDict, total=False):

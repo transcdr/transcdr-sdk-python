@@ -322,6 +322,34 @@ def test_audio_literals():
     assert get_args(AudioChannels) == ("source", "mono", "stereo", "5.1", "7.1")
 
 
+def test_aac_and_lossless_audio_round_trip(make_client):
+    outputs = [
+        {"mode": "audio", "audio": {"mode": "aac", "bitrate": "96k", "channels": "stereo", "container": "m4a"}},
+        {"mode": "audio", "audio": {"mode": "flac", "bit_depth": "24", "flac_compression": "best", "container": "flac"}},
+        {"mode": "audio", "audio": {"mode": "alac", "bit_depth": "16", "container": "auto"}},
+        {"mode": "single", "audio": {"mode": "flac", "bit_depth": "source", "flac_compression": "fast"}},
+        {"mode": "hls", "audio": {"mode": "aac", "channels": "5.1", "stereo_fallback": True}},
+    ]
+    for output in outputs:
+        returned = {"id": "job_1", "object": "job", "status": "queued", "output": output}
+        rec = Recorder(json_response(201, returned))
+        job = make_client(rec).jobs.create(input="ast_1", output=output)
+        assert body(rec)["output"] == output
+        assert json.loads(json.dumps(body(rec)["output"])) == output
+        assert job["output"]["audio"] == output["audio"]
+
+
+def test_lossless_literals():
+    from typing import get_args
+
+    from transcdr.types import AudioBitDepth, AudioContainer, AudioMode, FlacCompression
+
+    assert {"aac", "flac", "alac"} <= set(get_args(AudioMode))
+    assert get_args(AudioBitDepth) == ("source", "16", "24")
+    assert get_args(FlacCompression) == ("fast", "default", "best")
+    assert get_args(AudioContainer) == ("auto", "mp3", "flac", "m4a")
+
+
 # --------------------------------------------------------------------------
 # Usage: the input report
 # --------------------------------------------------------------------------
