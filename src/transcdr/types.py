@@ -22,6 +22,8 @@ __all__ = [
     "AudioBitDepth",
     "FlacCompression",
     "AudioContainer",
+    "Fit",
+    "Orientation",
     "Rendition",
     "Ladder",
     "Quality",
@@ -153,6 +155,15 @@ FlacCompression = Literal["fast", "default", "best"]
 #: is then MP3). ``m4a`` holds any codec (``auto`` audio in an ``.m4a`` is
 #: Opus); ``flac`` holds FLAC only and ``mp3`` MP3 only.
 AudioContainer = Literal["auto", "mp3", "flac", "m4a"]
+#: How the video meets a rendition's box. ``contain`` (the default) keeps its
+#: shape inside the box; ``cover`` fills the box and centre-crops; ``pad``
+#: keeps its shape and adds black bars to exactly the box; ``stretch``
+#: distorts it to exactly the box.
+Fit = Literal["contain", "cover", "pad", "stretch"]
+#: ``auto`` (the default): a rendition's box turns to the video's
+#: orientation, so 1920x1080 on a portrait video is 1080x1920. ``fixed``: the
+#: box is used as written.
+Orientation = Literal["auto", "fixed"]
 
 #: Statuses after which a job no longer changes on its own.
 TERMINAL_JOB_STATUSES = frozenset({"completed", "failed", "canceled"})
@@ -164,16 +175,29 @@ TERMINAL_JOB_STATUSES = frozenset({"completed", "failed", "canceled"})
 
 
 class Rendition(TypedDict, total=False):
-    #: Even, 64-7680.
+    """One output. ``width`` x ``height`` is the largest it may be: the video
+    keeps its shape inside that box (see ``OutputSpec.fit``) and is not
+    enlarged past its own size unless ``upscale`` is on. Each output reports
+    the size it came out at."""
+
+    #: The maximum width; even, 64-7680.
     width: int
-    #: Even, 64-4320.
+    #: The maximum height; even, 64-4320.
     height: int
     #: This rung's constant rate, e.g. ``"3M"`` or ``"800k"`` (100k to 200M), with
     #: ``quality.target="cbr"`` only. Without it the rung takes
     #: ``quality.bitrate``, else a default for its resolution and codec.
     bitrate: Optional[str]
-    #: 1 to 32 of ``[A-Za-z0-9_-]``; defaults to ``"<short side>p"``.
+    #: 1 to 32 of ``[A-Za-z0-9_-]``; defaults to ``"<short side>p"`` of the
+    #: size it comes out at.
     label: Optional[str]
+    #: This rendition's own fit, over ``OutputSpec.fit``.
+    fit: Optional[Fit]
+    #: ``fixed`` keeps this rendition's box as written, e.g. a 9:16 ``cover``
+    #: rendition that crops a landscape video.
+    orientation: Optional[Orientation]
+    #: This rendition's own ``upscale``, over ``OutputSpec.upscale``.
+    upscale: Optional[bool]
 
 
 class Ladder(TypedDict, total=False):
@@ -222,6 +246,10 @@ class OutputSpec(TypedDict, total=False):
     mode: Mode
     codec: Codec
     renditions: List[Rendition]
+    #: How the video meets each rendition's box. Default ``contain``.
+    fit: Fit
+    #: Let a rendition be larger than the source. Default False.
+    upscale: bool
     ladder: Optional[Ladder]
     quality: Quality
     gop: Optional[int]
@@ -317,6 +345,10 @@ class MediaInfo(TypedDict, total=False):
     audio: List[AudioStream]
     subtitles: List[SubtitleStream]
     size_bytes: Optional[int]
+    #: Non-square pixels only: the size the picture is shown at (720x576 at
+    #: 64:45 is shown 1024x576).
+    display_width: int
+    display_height: int
 
 
 class RenditionProgress(TypedDict, total=False):

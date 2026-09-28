@@ -339,6 +339,31 @@ def test_aac_and_lossless_audio_round_trip(make_client):
         assert job["output"]["audio"] == output["audio"]
 
 
+def test_fit_and_upscale_round_trip(make_client):
+    from typing import get_args
+
+    from transcdr.types import Fit, Orientation
+
+    output = {
+        "fit": "pad",
+        "upscale": True,
+        "renditions": [
+            {"width": 1920, "height": 1080},
+            {"width": 1080, "height": 1920, "fit": "cover", "orientation": "fixed", "upscale": False},
+        ],
+    }
+    returned = {"id": "job_1", "object": "job", "status": "queued", "output": output,
+                "input_info": {"width": 720, "height": 576, "display_width": 1024, "display_height": 576}}
+    rec = Recorder(json_response(201, returned))
+    job = make_client(rec).jobs.create(input="ast_1", output=output)
+    assert body(rec)["output"] == output
+    assert job["output"]["fit"] == "pad"
+    assert job["output"]["renditions"][1]["orientation"] == "fixed"
+    assert job["input_info"]["display_width"] == 1024
+    assert get_args(Fit) == ("contain", "cover", "pad", "stretch")
+    assert get_args(Orientation) == ("auto", "fixed")
+
+
 def test_lossless_literals():
     from typing import get_args
 

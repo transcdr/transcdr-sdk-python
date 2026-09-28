@@ -93,6 +93,34 @@ job = client.jobs.create(input="ast_...", preset=preset["id"])
 
 A `crf`, or a rate without `"cbr"`, is refused with an `InvalidRequestError`.
 
+### Rendition sizes are maximums: fit and upscale
+
+A rendition's `width` x `height` is the largest it may be, not its exact size. The video keeps its
+shape inside the box, a portrait video turns a landscape box portrait, and nothing is enlarged
+past the source: a 640x480 video through a 1920x1080 rendition comes out 640x480 (and bills as
+SD). Each output reports the size it came out at.
+
+- `fit`: `"contain"` (default) keeps the shape inside the box; `"cover"` fills the box and
+  centre-crops; `"pad"` adds black bars to exactly the box; `"stretch"` distorts to the box.
+- `upscale=True` lets a rendition be larger than the source. Without it, renditions that would
+  come out the same size are produced once.
+- A rendition may set its own `fit`, `upscale` and `orientation` (`"fixed"` keeps its box as
+  written).
+
+```python
+client.jobs.create(
+    input="https://example.com/in.mp4",
+    output={
+        "renditions": [
+            {"width": 1920, "height": 1080},
+            {"width": 1080, "height": 1920, "fit": "cover", "orientation": "fixed"},
+        ],
+        "fit": "contain",
+        "upscale": False,
+    },
+)
+```
+
 ### Audio: AAC, lossless, MP3, audio-only, channels
 
 `audio.mode` is `"auto"` (the default: compatible audio passes through, the rest becomes Opus),
