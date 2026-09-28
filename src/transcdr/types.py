@@ -17,6 +17,8 @@ __all__ = [
     "Stage",
     "Codec",
     "Mode",
+    "AudioMode",
+    "AudioChannels",
     "Rendition",
     "Ladder",
     "Quality",
@@ -123,7 +125,15 @@ Metadata = Dict[str, str]
 JobStatus = Literal["queued", "scheduled", "running", "uploading", "completed", "failed", "canceled"]
 Stage = Literal["waiting", "fetching", "probing", "encoding", "uploading", "done"]
 Codec = Literal["av1", "h264", "h265"]
-Mode = Literal["single", "hls"]
+#: ``single`` (one MP4), ``hls`` (an adaptive ladder) or ``audio`` (the audio
+#: alone, one ``.mp3`` file).
+Mode = Literal["single", "hls", "audio"]
+#: ``mp3`` is constant bit rate, stereo at most, in a single MP4 or audio-only
+#: output (not HLS).
+AudioMode = Literal["auto", "opus", "mp3", "drop"]
+#: ``source`` keeps the source's layout; the rest downmix and never upmix.
+#: MP3 carries ``source``, ``mono`` or ``stereo`` only.
+AudioChannels = Literal["source", "mono", "stereo", "5.1", "7.1"]
 
 #: Statuses after which a job no longer changes on its own.
 TERMINAL_JOB_STATUSES = frozenset({"completed", "failed", "canceled"})
@@ -164,8 +174,16 @@ class Quality(TypedDict, total=False):
 
 
 class AudioSettings(TypedDict, total=False):
-    mode: Literal["auto", "opus", "drop"]
+    mode: AudioMode
+    #: e.g. ``"128k"`` (6k to 512k). MP3 takes 32k, 40k, 48k, 56k, 64k, 80k,
+    #: 96k, 112k, 128k, 160k, 192k, 224k, 256k or 320k (default 128k stereo,
+    #: 64k mono).
     bitrate: Optional[str]
+    #: Channel layout; left out, the source's.
+    channels: AudioChannels
+    #: HLS with surround audio: also add a stereo rendition to the same audio
+    #: group. Default False.
+    stereo_fallback: bool
 
 
 class Trim(TypedDict, total=False):

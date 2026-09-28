@@ -287,6 +287,42 @@ def test_cbr_preset(make_client):
 
 
 # --------------------------------------------------------------------------
+# Audio: MP3, audio-only, channels
+# --------------------------------------------------------------------------
+
+
+def test_audio_only_mp3_job(make_client):
+    output = {"mode": "audio", "audio": {"mode": "mp3", "bitrate": "64k", "channels": "mono"}}
+    returned = {"id": "job_1", "object": "job", "status": "queued", "output": {**output, "codec": "av1"}}
+    rec = Recorder(json_response(201, returned))
+    job = make_client(rec).jobs.create(input="ast_1", output=output)
+    assert path(rec) == "POST /v1/jobs"
+    assert body(rec)["output"] == output
+    assert job["output"]["mode"] == "audio"
+    assert job["output"]["audio"] == {"mode": "mp3", "bitrate": "64k", "channels": "mono"}
+
+
+def test_surround_stereo_fallback_preset(make_client):
+    output = {"mode": "hls", "codec": "h264", "audio": {"mode": "opus", "channels": "5.1", "stereo_fallback": True}}
+    rec = Recorder(json_response(201, {"id": "pre_1", "output": output}))
+    preset = make_client(rec).presets.create(name="Surround", output=output)
+    sent = body(rec)["output"]["audio"]
+    assert sent == {"mode": "opus", "channels": "5.1", "stereo_fallback": True}
+    assert json.loads(json.dumps(sent)) == sent
+    assert preset["output"]["audio"]["stereo_fallback"] is True
+
+
+def test_audio_literals():
+    from typing import get_args
+
+    from transcdr.types import AudioChannels, AudioMode, Mode
+
+    assert "audio" in get_args(Mode)
+    assert "mp3" in get_args(AudioMode)
+    assert get_args(AudioChannels) == ("source", "mono", "stereo", "5.1", "7.1")
+
+
+# --------------------------------------------------------------------------
 # Usage: the input report
 # --------------------------------------------------------------------------
 
