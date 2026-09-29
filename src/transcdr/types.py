@@ -1,4 +1,4 @@
-"""Wire types for the Transcdr v1 API.
+"""Wire types for the Transcdr v1 API, with output spec v2.
 
 These are :class:`typing.TypedDict` definitions mirroring ``docs/api-contract.md``.
 At runtime every API object is a plain ``dict``, so ``job["status"]`` works
@@ -16,25 +16,74 @@ __all__ = [
     "JobStatus",
     "Stage",
     "Codec",
-    "Mode",
-    "AudioMode",
+    "Kind",
+    "ContainerFormat",
+    "VideoBitDepth",
+    "Color",
+    "AudioHandling",
+    "AudioCodec",
     "AudioChannels",
     "AudioBitDepth",
     "FlacCompression",
-    "AudioContainer",
     "HeAac",
     "Fit",
     "Orientation",
+    "ColorProfile",
     "ImageFormat",
     "ImageTier",
+    "PrivacyPresetName",
+    "LocationHandling",
+    "CaptureTimeHandling",
+    "DeviceHandling",
+    "DescriptiveHandling",
+    "Source",
+    "Container",
+    "FrameRate",
+    "GopFrames",
+    "GopSeconds",
+    "Gop",
+    "Cbr",
+    "VideoQuality",
+    "VideoCrf",
+    "VideoCbr",
+    "Video",
+    "AudioTrack",
+    "AudioDrop",
+    "Audio",
+    "FramesCount",
+    "FramesAt",
     "ImageFrames",
     "ImageSettings",
-    "Rendition",
+    "SizeCbr",
+    "SizeVideo",
+    "Size",
     "Ladder",
-    "Quality",
-    "AudioSettings",
+    "SourceSize",
+    "RenditionSizes",
+    "RenditionLadder",
+    "RenditionSourceSize",
+    "Renditions",
+    "SubtitleTracks",
+    "SubtitleLanguages",
+    "Subtitles",
     "Trim",
+    "PrivacyPreset",
+    "PrivacyFields",
+    "Privacy",
+    "VideoOutput",
+    "AudioOutput",
+    "ImageOutput",
     "OutputSpec",
+    "OutputOverrides",
+    "FieldError",
+    "PresetProvenance",
+    "PresetVersion",
+    "OutputCapabilities",
+    "OutputField",
+    "OutputGroup",
+    "OutputContainerInfo",
+    "OutputAudioCodecInfo",
+    "OutputCompatibility",
     "UrlInput",
     "AssetInput",
     "JobInput",
@@ -105,7 +154,6 @@ __all__ = [
     "StatsLast30d",
     "Stats",
     "TERMINAL_JOB_STATUSES",
-    "OutputSpecInput",
     "WebhookEndpointType",
     "WebhookAwsConfig",
     "WebhookAwsParams",
@@ -139,194 +187,403 @@ Metadata = Dict[str, str]
 JobStatus = Literal["queued", "scheduled", "running", "uploading", "completed", "failed", "canceled"]
 Stage = Literal["waiting", "fetching", "probing", "encoding", "uploading", "done"]
 Codec = Literal["av1", "h264", "h265"]
-#: ``single`` (one MP4), ``hls`` (an adaptive ladder), ``audio`` (the audio
-#: alone as one file: an ``.mp3``, ``.flac`` or ``.m4a``; see
-#: ``AudioSettings.container``) or ``image`` (still images of an image or a
-#: video; see ``OutputSpec.image``).
-Mode = Literal["single", "hls", "audio", "image"]
-#: An image output format: ``avif`` (the default, the smallest), ``webp``,
-#: ``jpeg`` or ``png`` (always lossless).
+#: What a job produces: ``video`` (an MP4 per size, or an HLS package),
+#: ``audio`` (the audio alone as one ``.mp3``, ``.flac`` or ``.m4a``) or
+#: ``image`` (still images of an image, or stills from a video).
+Kind = Literal["video", "audio", "image"]
+#: The file or package. Kind ``video``: ``mp4`` or ``hls``. Kind ``audio``:
+#: ``mp3`` (MP3 only), ``flac`` (FLAC only) or ``m4a`` (any codec).
+ContainerFormat = Literal["mp4", "hls", "mp3", "flac", "m4a"]
+#: An image output format: ``avif`` (the smallest), ``webp``, ``jpeg`` or
+#: ``png`` (always lossless).
 ImageFormat = Literal["avif", "webp", "jpeg", "png"]
 #: An output image's price tier, by the pixels it came out at.
 ImageTier = Literal["up_to_1mp", "up_to_4mp", "over_4mp"]
-#: ``auto`` passes compatible audio through and transcodes the rest (to Opus,
-#: or to MP3 in an audio-only ``.mp3``). ``aac`` is AAC-LC, the choice that
-#: plays on the most devices (an AAC source passes through). ``mp3`` is
-#: constant bit rate, stereo at most, in a single MP4 or audio-only output
-#: (not HLS). ``flac`` and ``alac`` are lossless (a source already in that
-#: codec is copied) and take no bitrate.
-AudioMode = Literal["auto", "opus", "mp3", "aac", "flac", "alac", "drop"]
+#: ``from_color``: 8-bit for ``sdr``, 10-bit for ``hdr10`` and ``hlg``, the
+#: source's for ``passthrough``. HDR needs ``from_color`` or ``10bit``;
+#: ``10bit`` is not offered with H.264.
+VideoBitDepth = Literal["from_color", "8bit", "10bit"]
+#: ``hdr10`` and ``hlg`` need a paid plan.
+Color = Literal["sdr", "hdr10", "hlg", "passthrough"]
+#: ``auto``: keep the source's audio where the container carries it
+#: unchanged, otherwise make it ``codec``. ``encode``: make it ``codec`` (a
+#: source already in it, with nothing else changed, is copied). ``drop``: no
+#: audio track (kind ``video`` only).
+AudioHandling = Literal["auto", "encode", "drop"]
+#: ``aac`` is AAC-LC, the codec that plays on the most devices. ``mp3`` is
+#: constant bit rate, stereo at most, not for HLS. ``flac`` and ``alac`` are
+#: lossless and take no bitrate. An ``.mp3`` holds MP3 only, a ``.flac``
+#: FLAC only.
+AudioCodec = Literal["opus", "mp3", "aac", "flac", "alac"]
 #: ``source`` keeps the source's layout; the rest downmix and never upmix.
-#: MP3 carries ``source``, ``mono`` or ``stereo`` only.
+#: MP3 carries ``source`` (folded to stereo at most), ``mono`` or ``stereo``.
 AudioChannels = Literal["source", "mono", "stereo", "5.1", "7.1"]
-#: FLAC and ALAC sample depth. ``source`` (the default) is 16-bit for a 16-bit
-#: or lossy source, 24-bit for a deeper one.
+#: FLAC and ALAC sample depth. ``source`` is 16-bit for a 16-bit or lossy
+#: source, 24-bit for a deeper one.
 AudioBitDepth = Literal["source", "16", "24"]
 #: FLAC compression effort: the same audio either way, a smaller file for
-#: more work. Default ``default``.
-FlacCompression = Literal["fast", "default", "best"]
-#: The file audio-only output is. ``auto`` (the default) follows the codec:
-#: ``.flac`` for FLAC, ``.m4a`` for ALAC, ``.mp3`` otherwise (``auto`` audio
-#: is then MP3). ``m4a`` holds any codec (``auto`` audio in an ``.m4a`` is
-#: Opus); ``flac`` holds FLAC only and ``mp3`` MP3 only.
-AudioContainer = Literal["auto", "mp3", "flac", "m4a"]
+#: more work.
+FlacCompression = Literal["fast", "balanced", "best"]
 #: What an HE-AAC (or HE-AAC v2) source becomes. HE-AAC is decoded only as
 #: its AAC-LC core: spectral band replication and parametric stereo are not
 #: decoded, so the core has half the stream's rate, less bandwidth and, for
-#: v2, one channel. ``auto`` (the default) passes it through when only a
-#: codec change is asked and decodes its core when the job needs PCM (a
-#: downmix, an ``.mp3`` or ``.flac`` file); ``passthrough`` never decodes it,
-#: and a job that would need it decoded fails; ``core`` decodes its core
-#: whenever another codec is asked. AAC-LC is decoded in full regardless.
+#: v2, one channel. ``auto`` passes it through when only a codec change is
+#: asked and decodes its core when the job needs PCM (a downmix, an ``.mp3``
+#: or ``.flac`` file); ``passthrough`` never decodes it, and a job that would
+#: need it decoded fails; ``core`` decodes its core whenever another codec
+#: is asked. AAC-LC is decoded in full regardless.
 HeAac = Literal["auto", "passthrough", "core"]
-#: How the video meets a rendition's box. ``contain`` (the default) keeps its
-#: shape inside the box; ``cover`` fills the box and centre-crops; ``pad``
-#: keeps its shape and adds black bars to exactly the box; ``stretch``
-#: distorts it to exactly the box.
+#: How the picture meets a size's box. ``contain`` keeps its shape inside
+#: the box; ``cover`` fills the box and centre-crops; ``pad`` keeps its shape
+#: and adds black bars to exactly the box; ``stretch`` distorts it to
+#: exactly the box.
 Fit = Literal["contain", "cover", "pad", "stretch"]
-#: ``auto`` (the default): a rendition's box turns to the video's
-#: orientation, so 1920x1080 on a portrait video is 1080x1920. ``fixed``: the
-#: box is used as written.
+#: ``auto``: the box turns to the picture's orientation, so 1920x1080 on a
+#: portrait video is 1080x1920. ``fixed``: the box is used as written.
 Orientation = Literal["auto", "fixed"]
+#: ``srgb`` converts the pixels to sRGB; ``keep`` keeps the source's colour
+#: profile (PNG, JPEG, WebP).
+ColorProfile = Literal["srgb", "keep"]
+PrivacyPresetName = Literal["strip_all", "strip_location", "keep_all"]
+#: ``approximate``: rounded to 2 decimal places (about 1 km), no altitude,
+#: no place name.
+LocationHandling = Literal["strip", "approximate", "keep"]
+#: ``date``: the day, the time of day zeroed.
+CaptureTimeHandling = Literal["strip", "date", "keep"]
+#: ``keep``: make, model, software and lens. ``keep_all``: also serial
+#: numbers and the owner name.
+DeviceHandling = Literal["strip", "keep", "keep_all"]
+DescriptiveHandling = Literal["strip", "keep"]
+#: A value that follows the source, written out.
+Source = Literal["source"]
 
 #: Statuses after which a job no longer changes on its own.
 TERMINAL_JOB_STATUSES = frozenset({"completed", "failed", "canceled"})
 
 
 # --------------------------------------------------------------------------
-# Output specification
+# Output specification (v2)
+#
+# A spec is declared in sections and nothing has a default: every field its
+# kind, container, codec and handling need is stated. Fields every spec of a
+# kind needs are required keys here; fields needed only under a condition
+# (an HLS container's ``segment_seconds``, a lossy codec's ``bitrate``, ...)
+# are optional keys, checked by :func:`transcdr.validate_output` against
+# the API's table. "Exactly one of" choices are unions.
 # --------------------------------------------------------------------------
 
 
-class Rendition(TypedDict, total=False):
-    """One output. ``width`` x ``height`` is the largest it may be: the video
-    keeps its shape inside that box (see ``OutputSpec.fit``) and is not
-    enlarged past its own size unless ``upscale`` is on. Each output reports
-    the size it came out at."""
-
-    #: The maximum width; even, 64-7680. Mode ``image``: 16-8192, odd sizes
-    #: allowed.
-    width: int
-    #: The maximum height; even, 64-4320. Mode ``image``: 16-8192, odd sizes
-    #: allowed.
-    height: int
-    #: This rung's constant rate, e.g. ``"3M"`` or ``"800k"`` (100k to 200M), with
-    #: ``quality.target="cbr"`` only. Without it the rung takes
-    #: ``quality.bitrate``, else a default for its resolution and codec.
-    bitrate: Optional[str]
-    #: 1 to 32 of ``[A-Za-z0-9_-]``; defaults to ``"<short side>p"`` of the
-    #: size it comes out at.
-    label: Optional[str]
-    #: This rendition's own fit, over ``OutputSpec.fit``.
-    fit: Optional[Fit]
-    #: ``fixed`` keeps this rendition's box as written, e.g. a 9:16 ``cover``
-    #: rendition that crops a landscape video.
-    orientation: Optional[Orientation]
-    #: This rendition's own ``upscale``, over ``OutputSpec.upscale``.
-    upscale: Optional[bool]
+class _ContainerRequired(TypedDict):
+    format: ContainerFormat
 
 
-class Ladder(TypedDict, total=False):
-    max_short_side: int
+class Container(_ContainerRequired, total=False):
+    #: Required for ``hls``, refused otherwise: seconds per segment, 1-20.
+    segment_seconds: float
 
 
-class Quality(TypedDict, total=False):
-    #: ``"visually_lossless" | "high" | "standard" | "low" | "vmaf=93"``, or
-    #: ``"cbr"``: every rendition at a constant bit rate instead of a quality level.
-    target: str
-    #: 0..63; wins over ``target``. Not with ``"cbr"``.
-    crf: Optional[int]
-    #: ``"cbr"`` only: the rate for renditions without their own, e.g. ``"5M"``.
-    bitrate: Optional[str]
-    #: ``"cbr"`` only: the rate buffer, 100–10000 ms (default 1000).
-    buffer_ms: Optional[int]
+class FrameRate(TypedDict):
+    #: A cap in frames per second, 1-240, or ``"source"``: the source's rate,
+    #: not capped.
+    max: Union[float, Source]
 
 
-class AudioSettings(TypedDict, total=False):
-    mode: AudioMode
-    #: e.g. ``"128k"`` (6k to 512k). MP3 takes 32k, 40k, 48k, 56k, 64k, 80k,
-    #: 96k, 112k, 128k, 160k, 192k, 224k, 256k or 320k (default 128k stereo,
-    #: 64k mono). AAC takes 8k to 288k per main channel (the LFE does not
-    #: count; default 64k mono, 128k stereo, 384k 5.1, 512k 7.1). Not with
-    #: ``flac`` or ``alac``.
-    bitrate: Optional[str]
-    #: Channel layout; left out, the source's.
+class GopFrames(TypedDict):
+    #: A keyframe every N frames, 1-1200.
+    frames: int
+
+
+class GopSeconds(TypedDict):
+    #: A keyframe every N seconds, 0.1-60.
+    seconds: float
+
+
+#: The keyframe interval. ``"segment"`` (``hls`` only): one keyframe at the
+#: start of each segment and none inside it.
+Gop = Union[GopFrames, GopSeconds, Literal["segment"]]
+
+
+class Cbr(TypedDict):
+    #: 100k to 200M, e.g. ``"5M"``, or ``"standard"``: a rate for each size
+    #: by codec, short side and frame rate.
+    bitrate: str
+    #: The rate buffer, 100-10000 ms.
+    buffer_ms: int
+
+
+class _VideoBase(TypedDict):
+    #: ``h265`` needs a paid plan.
+    codec: Codec
+    bit_depth: VideoBitDepth
+    color: Color
+    frame_rate: FrameRate
+    gop: Gop
+    #: A filter chain, one filter per entry, e.g. ``["crop=1280:720",
+    #: "hflip"]``; ``[]`` for none.
+    filters: List[str]
+
+
+class VideoQuality(_VideoBase):
+    #: ``visually_lossless``, ``high``, ``standard``, ``low`` or ``vmaf=N``.
+    quality: str
+
+
+class VideoCrf(_VideoBase):
+    #: A constant rate factor, 0-63.
+    crf: int
+
+
+class VideoCbr(_VideoBase):
+    #: Every size at a constant bit rate.
+    cbr: Cbr
+
+
+#: The video track: exactly one of ``quality``, ``crf`` and ``cbr``.
+Video = Union[VideoQuality, VideoCrf, VideoCbr]
+
+
+class AudioDrop(TypedDict):
+    """No audio track (kind ``video`` only)."""
+
+    handling: Literal["drop"]
+
+
+class _AudioTrackRequired(TypedDict):
+    handling: Literal["auto", "encode"]
+    #: With ``encode``, the codec made. With ``auto``, what audio the
+    #: container cannot carry becomes (``opus``; ``mp3`` in an ``.mp3``).
+    codec: AudioCodec
     channels: AudioChannels
-    #: HLS with surround audio: also add a stereo rendition to the same audio
-    #: group. Default False.
-    stereo_fallback: bool
-    #: ``flac`` and ``alac`` only: the output's sample depth.
-    bit_depth: AudioBitDepth
-    #: ``flac`` only: the compression effort.
-    flac_compression: FlacCompression
-    #: Mode ``audio`` only: the file the output is. Left out, ``auto``.
-    container: AudioContainer
-    #: What an HE-AAC source becomes. Left out, ``auto``. Not with ``drop``.
     he_aac: HeAac
 
 
-class Trim(TypedDict, total=False):
-    start: float
-    end: Optional[float]
+class AudioTrack(_AudioTrackRequired, total=False):
+    """An audio track. The optional keys are required under a condition."""
+
+    #: Required with ``opus``, ``mp3`` and ``aac``, refused otherwise:
+    #: 6k-512k (MP3: 32k, 40k, 48k, 56k, 64k, 80k, 96k, 112k, 128k, 160k,
+    #: 192k, 224k, 256k or 320k; AAC: 8k-288k per main channel), or
+    #: ``"standard"``: AAC 64k mono, 128k stereo, 384k 5.1, 512k 7.1; Opus
+    #: 96k stereo, 320k 5.1, 416k 7.1; MP3 64k mono, 128k stereo.
+    bitrate: str
+    #: Required with an ``hls`` container: a stereo downmix beside surround
+    #: audio. ``True`` needs ``channels`` ``source``, ``5.1`` or ``7.1``.
+    stereo_fallback: bool
+    #: Required with ``flac`` and ``alac``.
+    bit_depth: AudioBitDepth
+    #: Required with ``flac``.
+    flac_compression: FlacCompression
 
 
-class ImageFrames(TypedDict, total=False):
-    """A video input's stills in an image job: at these times, or this many
-    evenly spaced. Give one or the other; neither is one frame 10% of the way
-    in. An image input refuses ``frames``."""
+#: The audio: a track, or none.
+Audio = Union[AudioTrack, AudioDrop]
 
-    #: Seconds from the start, 1 to 100 of them, each within the video.
-    at_seconds: List[float]
-    #: 1 to 100 stills, evenly spaced through the video.
+
+class FramesCount(TypedDict):
+    #: 1-100 stills, evenly spaced through a video input.
     count: int
 
 
-class ImageSettings(TypedDict, total=False):
-    """Mode ``image`` only: every rendition is made in every format."""
+class FramesAt(TypedDict):
+    #: 1-100 times, in seconds, in a video input.
+    at_seconds: List[float]
 
-    #: 1 to 4 distinct formats; ``["avif"]`` when left out.
+
+#: Which stills. ``"poster"``: an image input as it is; a video's frame 10%
+#: of the way in. ``count`` and ``at_seconds`` take a video input only.
+ImageFrames = Union[Literal["poster"], FramesCount, FramesAt]
+
+
+class _ImageRequired(TypedDict):
+    #: 1 to 4 distinct formats; every size is made in each.
     formats: List[ImageFormat]
-    #: 1 to 100, for the lossy formats. Left out, each format's own default
-    #: (AVIF 60, WebP 80, JPEG 82).
-    quality: int
-    #: Lossless WebP. Only with ``webp`` and ``png`` (PNG is always lossless).
-    lossless: bool
-    #: Keep the source's colour profile instead of converting to sRGB. EXIF,
-    #: XMP and GPS are never kept.
-    keep_color_profile: bool
-    #: A video input's stills.
+    color_profile: ColorProfile
     frames: ImageFrames
 
 
-class OutputSpec(TypedDict, total=False):
-    mode: Mode
-    codec: Codec
-    renditions: List[Rendition]
-    #: How the video meets each rendition's box. Default ``contain``.
+class ImageSettings(_ImageRequired, total=False):
+    """Still images. The optional keys are required under a condition."""
+
+    #: Required when ``webp`` is made: lossless WebP.
+    lossless: bool
+    #: Required when a lossy format is made (``avif``, ``jpeg``, ``webp``
+    #: without ``lossless``): one entry, 1-100, for each lossy format made
+    #: and no others, e.g. ``{"avif": 60, "jpeg": 82}``.
+    quality: Dict[str, int]
+
+
+class SizeCbr(TypedDict):
+    bitrate: str
+
+
+class SizeVideo(TypedDict):
+    cbr: SizeCbr
+
+
+class _SizeRequired(TypedDict):
+    #: 1-32 of ``A-Z a-z 0-9 - _``, or ``"by_size"``: ``<short side>p`` of the
+    #: size it comes out at (images: ``<width>x<height>``).
+    label: str
+    #: The box's width, a maximum: video 64-7680 and even; image 16-8192.
+    width: int
+    #: The box's height: video 64-4320 and even; image 16-8192.
+    height: int
     fit: Fit
-    #: Let a rendition be larger than the source. Default False.
+    orientation: Orientation
+    #: Let the output be larger than the source.
     upscale: bool
-    ladder: Optional[Ladder]
-    quality: Quality
-    gop: Optional[int]
-    segment_seconds: Optional[float]
-    audio: AudioSettings
-    #: ``"all" | "none" | "eng,deu"``
-    subtitles: str
-    color: Literal["sdr", "hdr10", "hlg", "passthrough"]
-    bit_depth: Literal["auto", "8bit", "10bit"]
-    max_fps: Optional[float]
-    filters: Optional[str]
-    trim: Optional[Trim]
-    #: Mode ``image`` only: the formats, quality and, for a video input, which
-    #: stills. Absent for other modes.
-    image: Optional[ImageSettings]
 
 
-#: A partial spec, as sent: job overrides (merged over the preset; objects
-#: merge, arrays replace, ``None`` clears), a preset's output, or an
-#: automation's overrides. Every field is optional.
-OutputSpecInput = OutputSpec
+class Size(_SizeRequired, total=False):
+    """One output size: a box the picture is fitted into, not the output
+    size. Each output reports the size it came out at."""
+
+    #: With ``video.cbr`` only: this size's own rate over
+    #: ``video.cbr.bitrate``. The response writes it on every size.
+    video: SizeVideo
+
+
+class Ladder(TypedDict):
+    """An automatic ladder of the standard short sides up to
+    ``max_short_side``, never above the source (kind ``video`` only)."""
+
+    max_short_side: int
+    fit: Fit
+    upscale: bool
+
+
+class SourceSize(TypedDict):
+    """One output at the source's size."""
+
+    label: str
+    fit: Fit
+    upscale: bool
+
+
+class RenditionSizes(TypedDict):
+    sizes: List[Size]
+
+
+class RenditionLadder(TypedDict):
+    ladder: Ladder
+
+
+class RenditionSourceSize(TypedDict):
+    source_size: SourceSize
+
+
+#: The sizes produced: exactly one of ``sizes``, ``ladder`` and ``source_size``.
+Renditions = Union[RenditionSizes, RenditionLadder, RenditionSourceSize]
+
+
+class SubtitleTracks(TypedDict):
+    #: ``all``: every subtitle track of the source; ``none``: none.
+    tracks: Literal["all", "none"]
+
+
+class SubtitleLanguages(TypedDict):
+    #: ISO 639 codes, e.g. ``["eng", "deu"]``.
+    languages: List[str]
+
+
+#: Which subtitle tracks are carried: exactly one of ``tracks`` and ``languages``.
+Subtitles = Union[SubtitleTracks, SubtitleLanguages]
+
+
+class Trim(TypedDict):
+    #: Seconds from the start, >= 0.
+    start: float
+    #: Seconds from the start, after ``start``; or ``"source"``: the end.
+    end: Union[float, Source]
+
+
+class PrivacyPreset(TypedDict):
+    """A privacy preset: ``strip_all`` strips every category,
+    ``strip_location`` only the location, ``keep_all`` keeps them all."""
+
+    preset: PrivacyPresetName
+
+
+class PrivacyFields(TypedDict):
+    """Each category stated. Responses always carry this form."""
+
+    location: LocationHandling
+    capture_time: CaptureTimeHandling
+    device: DeviceHandling
+    descriptive: DescriptiveHandling
+
+
+#: Which identifying metadata survives: a preset, or all four categories.
+Privacy = Union[PrivacyPreset, PrivacyFields]
+
+
+class VideoOutput(TypedDict):
+    kind: Literal["video"]
+    container: Container
+    video: Video
+    audio: Audio
+    renditions: Renditions
+    subtitles: Subtitles
+    trim: Trim
+    privacy: Privacy
+
+
+class AudioOutput(TypedDict):
+    kind: Literal["audio"]
+    container: Container
+    audio: AudioTrack
+    privacy: Privacy
+
+
+class ImageOutput(TypedDict):
+    kind: Literal["image"]
+    image: ImageSettings
+    renditions: Renditions
+    privacy: Privacy
+
+
+#: A whole output spec: what a job produces, every field stated. Jobs,
+#: presets and automations return it resolved.
+OutputSpec = Union[VideoOutput, AudioOutput, ImageOutput]
+
+
+class OutputOverrides(TypedDict, total=False):
+    """Fields over a preset (a job's or automation's ``output`` with a
+    ``preset``, or a ``PATCH`` of a preset's output). Any subset: objects
+    merge key by key, scalars and lists replace, one choice of an exclusive
+    group (``crf`` over ``quality``, ``ladder`` over ``sizes``, ``languages``
+    over ``tracks``) replaces the others, ``None`` removes a field, and
+    ``kind`` cannot change. The result must be a whole, valid spec: after
+    changing ``container.format`` to ``mp4``, send ``segment_seconds: None``
+    too."""
+
+    kind: Kind
+    container: Optional[Dict[str, Any]]
+    video: Optional[Dict[str, Any]]
+    audio: Optional[Dict[str, Any]]
+    image: Optional[Dict[str, Any]]
+    renditions: Optional[Dict[str, Any]]
+    subtitles: Optional[Dict[str, Any]]
+    trim: Optional[Dict[str, Any]]
+    privacy: Optional[Dict[str, Any]]
+
+
+class PresetProvenance(TypedDict, total=False):
+    """Where a job's spec came from."""
+
+    #: The preset as the request named it (a slug or an id).
+    id: str
+    #: The version it resolved to.
+    version: int
+    #: The request's ``output`` over it, in v2 form; ``None`` when none.
+    overrides: Optional[OutputOverrides]
+
+
+class FieldError(TypedDict):
+    """One failure of a refused output spec: ``output.<path>`` and why."""
+
+    param: str
+    message: str
 
 
 # --------------------------------------------------------------------------
@@ -477,6 +734,10 @@ class Job(TypedDict, total=False):
     input: JobInput
     input_info: Optional[MediaInfo]
     preset_id: Optional[str]
+    #: Where the spec came from: the preset version and the request's
+    #: ``output`` over it. ``None`` for a job sent a whole spec.
+    preset: Optional[PresetProvenance]
+    #: The resolved, complete spec: what runs, and what a rerun uses.
     output: OutputSpec
     priority: Literal["normal", "high"]
     progress: Progress
@@ -580,10 +841,23 @@ class Preset(TypedDict, total=False):
     """Where the output plays: derived from ``output`` unless the preset sets its own."""
     compatibility_notes: Dict[str, str]
     """Minimum versions and conditions, by platform in ``compatibility``."""
+    version: int
+    """Its latest version. Editing its output adds one; a version never changes."""
     output: OutputSpec
+    """The latest version's spec (or version N's, from ``get_version``)."""
     metadata: Metadata
     created_at: str
     updated_at: str
+
+
+class PresetVersion(TypedDict, total=False):
+    """One version of a preset: a whole spec that never changes."""
+
+    object: Literal["preset_version"]
+    version: int
+    output: OutputSpec
+    #: ``None`` for system presets.
+    created_at: Optional[str]
 
 
 # --------------------------------------------------------------------------
@@ -830,8 +1104,12 @@ class Automation(TypedDict, total=False):
     source: AutomationSource
     poll_interval_seconds: int
     settle_seconds: int
+    #: ``slug``, ``slug@N`` or an id; resolved each time a job is made.
     preset: Optional[str]
-    output: Optional[OutputSpec]
+    #: The fields over the preset, as stored.
+    output: Optional[OutputOverrides]
+    #: The whole spec ``preset`` and ``output`` resolve to now.
+    resolved_output: Optional[OutputSpec]
     destination: Optional[Destination]
     after_success: Literal["keep", "delete"]
     priority: Literal["normal", "high"]
@@ -1268,7 +1546,8 @@ class ImageFormatInfo(TypedDict, total=False):
     lossless: bool
     #: Keeps transparency.
     alpha: bool
-    #: The quality used when ``image.quality`` is left out; lossy formats only.
+    #: A suggested ``image.quality`` for this format (lossy formats only).
+    #: A v2 spec always states its quality: nothing is filled in.
     default_quality: int
 
 
@@ -1285,6 +1564,71 @@ class ImageLimits(TypedDict, total=False):
     max_frames: int
     #: Largest image input.
     max_input_megapixels: int
+
+
+class OutputField(TypedDict, total=False):
+    """One field of the output spec. It is required (or, when ``required`` is
+    false, allowed) when any object in ``when`` matches; an object matches
+    when every path in it has one of the listed values (``"*"``: present,
+    ``"!"``: absent). Outside ``when`` it is refused."""
+
+    #: Relative to ``output``; ``[]`` stands for each entry of a list.
+    path: str
+    required: bool
+    when: List[Dict[str, List[str]]]
+    #: ``{"type": "enum", "values": [...]}``, ``{"type": "number", "min", "max"}``, ...
+    shape: Dict[str, Any]
+    #: Its exclusive group (``output.groups``), if it is one of several choices.
+    group: Optional[str]
+    description: str
+
+
+class OutputGroup(TypedDict, total=False):
+    """Choices of which exactly one is given whenever ``when`` matches."""
+
+    name: str
+    members: List[str]
+    when: List[Dict[str, List[str]]]
+    exactly_one: bool
+
+
+class OutputContainerInfo(TypedDict, total=False):
+    id: ContainerFormat
+    kind: Kind
+    #: The audio codecs it holds.
+    audio_codecs: List[AudioCodec]
+
+
+class OutputAudioCodecInfo(TypedDict, total=False):
+    id: AudioCodec
+    name: str
+    lossless: bool
+    max_channels: int
+    #: The fixed rates it takes (MP3), else ``None``.
+    bitrates: Optional[List[str]]
+
+
+class OutputCompatibility(TypedDict, total=False):
+    #: How v1 requests are read.
+    v1_requests: str
+    #: ``{"header", "value", "query", "sunset"}``: how a client not yet on
+    #: v2 asks for v1 responses, and when that ends.
+    v1_responses: Dict[str, str]
+
+
+class OutputCapabilities(TypedDict, total=False):
+    #: ``2``.
+    version: int
+    kinds: List[Kind]
+    fields: List[OutputField]
+    groups: List[OutputGroup]
+    #: How ``when`` is read, in words.
+    conditions: str
+    containers: List[OutputContainerInfo]
+    audio_codecs: List[OutputAudioCodecInfo]
+    #: ``"audio.bitrate: standard"`` -> what it resolves to.
+    follow_values: Dict[str, str]
+    compatibility: OutputCompatibility
 
 
 class Capabilities(TypedDict, total=False):
@@ -1309,6 +1653,9 @@ class Capabilities(TypedDict, total=False):
     #: (:class:`ImageLimits`).
     limits: Dict[str, Any]
     system_presets: List[Preset]
+    #: The output spec (v2) as data: every field, when it is required, and
+    #: what it takes. :func:`transcdr.validate_output` checks the same table.
+    output: OutputCapabilities
 
 
 class Status(TypedDict, total=False):

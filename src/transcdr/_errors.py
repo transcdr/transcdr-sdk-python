@@ -2,16 +2,18 @@
 
 Every API error has the shape documented in the API contract::
 
-    {"error": {"type", "code", "message", "param", "details", "request_id"}}
+    {"error": {"type", "code", "message", "param", "details", "errors", "request_id"}}
 
-and is mapped onto a :class:`TranscdrError` subclass by HTTP status.
+``errors`` lists every failure of an output spec refused with a 422
+(``[{"param", "message"}]``; ``param`` and ``message`` are the first). The
+error is mapped onto a :class:`TranscdrError` subclass by HTTP status.
 """
 
 from __future__ import annotations
 
 import email.utils
 import time
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 __all__ = [
     "TranscdrError",
@@ -41,6 +43,7 @@ class TranscdrError(Exception):
         code: Optional[str] = None,
         param: Optional[str] = None,
         details: Optional[Dict[str, Any]] = None,
+        errors: Optional[List[Dict[str, str]]] = None,
         request_id: Optional[str] = None,
         headers: Optional[Mapping[str, str]] = None,
         body: Any = None,
@@ -52,6 +55,9 @@ class TranscdrError(Exception):
         self.code = code
         self.param = param
         self.details = details
+        #: Every failure of a refused output spec, ``[{"param", "message"}]``;
+        #: empty for other errors.
+        self.errors: List[Dict[str, str]] = list(errors or [])
         self.request_id = request_id
         self.headers: Dict[str, str] = dict(headers or {})
         self.body = body
@@ -182,6 +188,7 @@ def error_from_response(status: int, body: Any, headers: Mapping[str, str]) -> T
         code=err.get("code"),
         param=err.get("param"),
         details=err.get("details"),
+        errors=[e for e in err.get("errors") or [] if isinstance(e, dict)],
         request_id=request_id,
         headers=headers,
         body=body,

@@ -15,9 +15,11 @@ from ..types import (
     Job,
     JobEvent,
     JobOutput,
+    OutputOverrides,
     OutputSpec,
     SignedUrl,
 )
+from ..output import check_output
 from ._base import AsyncResource, SyncResource, coerce_input
 
 __all__ = ["Jobs", "AsyncJobs", "Deliveries", "AsyncDeliveries"]
@@ -28,13 +30,15 @@ JobInputArg = Union[str, Mapping[str, Any]]
 def _create_body(
     input: JobInputArg,
     preset: Optional[str],
-    output: Optional[OutputSpec],
+    output: Union[OutputSpec, OutputOverrides, None],
     priority: Optional[str],
     metadata: Optional[Dict[str, str]],
     webhook_url: Optional[str],
     destination: Optional[Destination],
     max_cost_cents: Optional[int] = None,
 ) -> Dict[str, Any]:
+    if preset is None:
+        check_output(output)
     return strip_none(
         {
             "input": coerce_input(input),
@@ -83,7 +87,7 @@ class Jobs(SyncResource):
         *,
         input: JobInputArg,
         preset: Optional[str] = None,
-        output: Optional[OutputSpec] = None,
+        output: Union[OutputSpec, OutputOverrides, None] = None,
         priority: Optional[str] = None,
         metadata: Optional[Dict[str, str]] = None,
         webhook_url: Optional[str] = None,
@@ -95,8 +99,16 @@ class Jobs(SyncResource):
 
         ``input`` is ``{"type": "url", "url": ...}``, ``{"type": "asset",
         "asset_id": ...}``, ``{"type": "connection", "connection_id": ...,
-        "path": ...}``, or simply a URL string or ``ast_`` id. ``output``
-        fields override the preset's. ``destination={"connection_id": ...,
+        "path": ...}``, or simply a URL string or ``ast_`` id.
+
+        The spec is ``preset`` (a slug, ``slug@N`` for version N, or an id),
+        with ``output``'s fields over it (objects merge, lists replace,
+        ``None`` removes a field); or, without a preset, ``output`` alone as
+        a whole spec. A whole spec is checked with
+        :func:`~transcdr.validate_output` first: one that lacks a field
+        raises :class:`~transcdr.InvalidRequestError` listing every failure
+        in ``errors``, and nothing is sent. So is a job with neither.
+        ``destination={"connection_id": ...,
         "prefix": "out/{job_id}/"}`` delivers every output file on completion.
         ``max_cost_cents`` caps what the job may cost: above it the job is
         refused with ``cost_limit_exceeded``. An ``Idempotency-Key`` is
@@ -213,7 +225,7 @@ class AsyncJobs(AsyncResource):
         *,
         input: JobInputArg,
         preset: Optional[str] = None,
-        output: Optional[OutputSpec] = None,
+        output: Union[OutputSpec, OutputOverrides, None] = None,
         priority: Optional[str] = None,
         metadata: Optional[Dict[str, str]] = None,
         webhook_url: Optional[str] = None,

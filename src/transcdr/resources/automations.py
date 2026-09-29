@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Mapping, Optional, cast
+from typing import Any, Dict, List, Mapping, Optional, Union, cast
 
 from .._base_client import path_segment as seg
 from .._base_client import NOT_GIVEN
@@ -12,8 +12,10 @@ from ..types import (
     AutomationTriggerResult,
     AutomationSource,
     Destination,
+    OutputOverrides,
     OutputSpec,
 )
+from ..output import check_output
 from ._base import AsyncResource, SyncResource
 
 __all__ = ["Automations", "AsyncAutomations"]
@@ -24,7 +26,7 @@ def _body(
     source: Optional[AutomationSource],
     trigger: Optional[str],
     preset: Optional[str],
-    output: Optional[OutputSpec],
+    output: Union[OutputSpec, OutputOverrides, None],
     destination: Optional[Destination],
     poll_interval_seconds: Optional[int],
     settle_seconds: Optional[int],
@@ -78,6 +80,12 @@ class Automations(SyncResource):
     or through SNS, EventBridge events and job requests). Each object version
     is processed exactly once.
 
+    Each job's spec is ``preset`` (``slug``, ``slug@N`` or an id) with
+    ``output``'s fields over it, resolved when the job is made; without a
+    preset, ``output`` is a whole spec, checked with
+    :func:`~transcdr.validate_output` before it is sent. The automation's
+    ``resolved_output`` shows what they resolve to now.
+
     On ``update`` a field left out is kept, and ``None`` clears ``preset``,
     ``output``, ``destination``, ``metadata``, ``webhook_url`` and
     ``trigger_connection_id``."""
@@ -94,7 +102,7 @@ class Automations(SyncResource):
         source: AutomationSource,
         trigger: Optional[str] = None,
         preset: Optional[str] = None,
-        output: Optional[OutputSpec] = None,
+        output: Union[OutputSpec, OutputOverrides, None] = None,
         destination: Optional[Destination] = None,
         poll_interval_seconds: Optional[int] = None,
         settle_seconds: Optional[int] = None,
@@ -106,6 +114,8 @@ class Automations(SyncResource):
         trigger_connection_id: Optional[str] = None,
         idempotency_key: Optional[str] = None,
     ) -> Automation:
+        if preset is None:
+            check_output(output)
         body = _body(
             name, source, trigger, preset, output, destination, poll_interval_seconds,
             settle_seconds, after_success, priority, metadata, webhook_url, enabled,
@@ -124,7 +134,7 @@ class Automations(SyncResource):
         source: Optional[AutomationSource] = None,
         trigger: Optional[str] = None,
         preset: Optional[str] = NOT_GIVEN,
-        output: Optional[OutputSpec] = NOT_GIVEN,
+        output: Union[OutputSpec, OutputOverrides, None] = NOT_GIVEN,
         destination: Optional[Destination] = NOT_GIVEN,
         poll_interval_seconds: Optional[int] = None,
         settle_seconds: Optional[int] = None,
@@ -194,7 +204,7 @@ class AsyncAutomations(AsyncResource):
         source: AutomationSource,
         trigger: Optional[str] = None,
         preset: Optional[str] = None,
-        output: Optional[OutputSpec] = None,
+        output: Union[OutputSpec, OutputOverrides, None] = None,
         destination: Optional[Destination] = None,
         poll_interval_seconds: Optional[int] = None,
         settle_seconds: Optional[int] = None,
@@ -206,6 +216,8 @@ class AsyncAutomations(AsyncResource):
         trigger_connection_id: Optional[str] = None,
         idempotency_key: Optional[str] = None,
     ) -> Automation:
+        if preset is None:
+            check_output(output)
         body = _body(
             name, source, trigger, preset, output, destination, poll_interval_seconds,
             settle_seconds, after_success, priority, metadata, webhook_url, enabled,
@@ -224,7 +236,7 @@ class AsyncAutomations(AsyncResource):
         source: Optional[AutomationSource] = None,
         trigger: Optional[str] = None,
         preset: Optional[str] = NOT_GIVEN,
-        output: Optional[OutputSpec] = NOT_GIVEN,
+        output: Union[OutputSpec, OutputOverrides, None] = NOT_GIVEN,
         destination: Optional[Destination] = NOT_GIVEN,
         poll_interval_seconds: Optional[int] = None,
         settle_seconds: Optional[int] = None,

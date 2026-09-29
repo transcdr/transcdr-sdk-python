@@ -9,7 +9,7 @@ import pytest
 
 from transcdr import types
 
-from .conftest import AsyncRecorder, Recorder, json_response
+from .conftest import SINGLE_MP4, AsyncRecorder, Recorder, json_response
 
 PRESET = {
     "object": "preset",
@@ -60,12 +60,12 @@ def test_create_and_replace_send_the_organizations_own_values(make_client):
     client = make_client(rec)
     client.presets.create(
         name="Phones",
-        output={"codec": "h265"},
+        output={**SINGLE_MP4, "video": {**SINGLE_MP4["video"], "codec": "h265"}},
         category="mobile",
         compatibility=["ios", "android"],
         compatibility_notes={"ios": "Our app only."},
     )
-    client.presets.replace("pre_1", name="Phones", output={}, category="tv")
+    client.presets.replace("pre_1", name="Phones", output=SINGLE_MP4, category="tv")
     created = json.loads(rec.requests[0].content)
     assert created["category"] == "mobile"
     assert created["compatibility"] == ["ios", "android"]

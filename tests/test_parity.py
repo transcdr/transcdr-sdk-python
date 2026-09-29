@@ -12,7 +12,7 @@ import pytest
 
 from transcdr import NOT_GIVEN, TranscdrError
 
-from .conftest import API_KEY, BASE_URL, AsyncRecorder, Recorder, json_response
+from .conftest import API_KEY, BASE_URL, AsyncRecorder, Recorder, json_response, output_case
 
 MEMBERSHIP = {
     "object": "membership",
@@ -254,12 +254,14 @@ def test_queue_automation(make_client):
         trigger="queue",
         trigger_connection_id="con_q",
         source={"connection_id": "con_s", "prefix": "incoming/"},
+        preset="hls-av1-abr@2",
     )
     assert body(rec) == {
         "name": "Uploads",
         "trigger": "queue",
         "trigger_connection_id": "con_q",
         "source": {"connection_id": "con_s", "prefix": "incoming/"},
+        "preset": "hls-av1-abr@2",
     }
     result = client.automations.run("aut_1")
     assert result["messages_deleted"] == 2
@@ -268,167 +270,122 @@ def test_queue_automation(make_client):
 
 
 # --------------------------------------------------------------------------
-# Constant bit rate
+# Output spec v2: every kind, sent and returned as written
 # --------------------------------------------------------------------------
 
 
-def test_cbr_preset(make_client):
-    output = {
-        "mode": "hls",
-        "codec": "h264",
-        "quality": {"target": "cbr", "bitrate": "3M", "buffer_ms": 1500},
-        "renditions": [{"width": 1920, "height": 1080, "bitrate": "6M"}, {"width": 1280, "height": 720}],
-    }
-    rec = Recorder(json_response(201, {"id": "pre_1", "output": output}))
+def test_cbr_hls_preset(make_client):
+    output = output_case("hls cbr sizes")
+    rec = Recorder(json_response(201, {"id": "pre_1", "version": 1, "output": output}))
     preset = make_client(rec).presets.create(name="Broadcast CBR", output=output)
     assert path(rec) == "POST /v1/presets"
     assert body(rec)["output"] == output
-    assert preset["output"]["quality"]["target"] == "cbr"
-
-
-# --------------------------------------------------------------------------
-# Audio: MP3, audio-only, channels
-# --------------------------------------------------------------------------
+    assert preset["output"]["video"]["cbr"] == {"bitrate": "standard", "buffer_ms": 1000}
+    assert preset["output"]["renditions"]["sizes"][0]["video"] == {"cbr": {"bitrate": "5M"}}
+    assert preset["version"] == 1
 
 
 def test_audio_only_mp3_job(make_client):
-    output = {"mode": "audio", "audio": {"mode": "mp3", "bitrate": "64k", "channels": "mono"}}
-    returned = {"id": "job_1", "object": "job", "status": "queued", "output": {**output, "codec": "av1"}}
+    output = output_case("audio mp3")
+    resolved = {**output, "privacy": {"location": "strip", "capture_time": "strip", "device": "strip",
+                                      "descriptive": "strip"}}  # fmt: skip
+    returned = {"id": "job_1", "object": "job", "status": "queued", "preset": None, "output": resolved}
     rec = Recorder(json_response(201, returned))
     job = make_client(rec).jobs.create(input="ast_1", output=output)
     assert path(rec) == "POST /v1/jobs"
     assert body(rec)["output"] == output
-    assert job["output"]["mode"] == "audio"
-    assert job["output"]["audio"] == {"mode": "mp3", "bitrate": "64k", "channels": "mono"}
+    assert "preset" not in body(rec)
+    assert job["preset"] is None
+    assert job["output"]["kind"] == "audio"
+    assert job["output"]["privacy"]["device"] == "strip"
 
 
-def test_surround_stereo_fallback_preset(make_client):
-    output = {"mode": "hls", "codec": "h264", "audio": {"mode": "opus", "channels": "5.1", "stereo_fallback": True}}
-    rec = Recorder(json_response(201, {"id": "pre_1", "output": output}))
-    preset = make_client(rec).presets.create(name="Surround", output=output)
-    sent = body(rec)["output"]["audio"]
-    assert sent == {"mode": "opus", "channels": "5.1", "stereo_fallback": True}
-    assert json.loads(json.dumps(sent)) == sent
-    assert preset["output"]["audio"]["stereo_fallback"] is True
-
-
-def test_audio_literals():
-    from typing import get_args
-
-    from transcdr.types import AudioChannels, AudioMode, Mode
-
-    assert "audio" in get_args(Mode)
-    assert "mp3" in get_args(AudioMode)
-    assert get_args(AudioChannels) == ("source", "mono", "stereo", "5.1", "7.1")
-
-
-def test_aac_and_lossless_audio_round_trip(make_client):
-    outputs = [
-        {"mode": "audio", "audio": {"mode": "aac", "bitrate": "96k", "channels": "stereo", "container": "m4a"}},
-        {"mode": "audio", "audio": {"mode": "flac", "bit_depth": "24", "flac_compression": "best", "container": "flac"}},
-        {"mode": "audio", "audio": {"mode": "alac", "bit_depth": "16", "container": "auto"}},
-        {"mode": "single", "audio": {"mode": "flac", "bit_depth": "source", "flac_compression": "fast"}},
-        {"mode": "hls", "audio": {"mode": "aac", "channels": "5.1", "stereo_fallback": True}},
-        {"mode": "single", "audio": {"mode": "opus", "channels": "stereo", "he_aac": "passthrough"}},
-        {"mode": "audio", "audio": {"mode": "flac", "container": "flac", "he_aac": "core"}},
-    ]
-    for output in outputs:
-        returned = {"id": "job_1", "object": "job", "status": "queued", "output": output}
-        rec = Recorder(json_response(201, returned))
+def test_lossless_and_surround_audio_round_trip(make_client):
+    flac = output_case("audio flac, privacy fields")
+    surround = output_case("hls cbr sizes")
+    surround["audio"] = {"handling": "encode", "codec": "opus", "bitrate": "standard", "channels": "5.1",
+                         "he_aac": "passthrough", "stereo_fallback": True}  # fmt: skip
+    alac = {"kind": "audio", "container": {"format": "m4a"}, "privacy": {"preset": "keep_all"},
+            "audio": {"handling": "encode", "codec": "alac", "channels": "stereo", "he_aac": "core",
+                      "bit_depth": "16"}}  # fmt: skip
+    for output in (flac, surround, alac):
+        rec = Recorder(json_response(201, {"id": "job_1", "object": "job", "output": output}))
         job = make_client(rec).jobs.create(input="ast_1", output=output)
         assert body(rec)["output"] == output
-        assert json.loads(json.dumps(body(rec)["output"])) == output
         assert job["output"]["audio"] == output["audio"]
 
 
-def test_fit_and_upscale_round_trip(make_client):
-    from typing import get_args
-
-    from transcdr.types import Fit, Orientation
-
-    output = {
-        "fit": "pad",
-        "upscale": True,
-        "renditions": [
-            {"width": 1920, "height": 1080},
-            {"width": 1080, "height": 1920, "fit": "cover", "orientation": "fixed", "upscale": False},
-        ],
-    }
-    returned = {"id": "job_1", "object": "job", "status": "queued", "output": output,
-                "input_info": {"width": 720, "height": 576, "display_width": 1024, "display_height": 576}}
-    rec = Recorder(json_response(201, returned))
-    job = make_client(rec).jobs.create(input="ast_1", output=output)
-    assert body(rec)["output"] == output
-    assert job["output"]["fit"] == "pad"
-    assert job["output"]["renditions"][1]["orientation"] == "fixed"
-    assert job["input_info"]["display_width"] == 1024
-    assert get_args(Fit) == ("contain", "cover", "pad", "stretch")
-    assert get_args(Orientation) == ("auto", "fixed")
-
-
-def test_he_aac_literal():
-    from typing import get_args, get_type_hints
-
-    from transcdr.types import AudioSettings, HeAac
-
-    assert get_args(HeAac) == ("auto", "passthrough", "core")
-    assert get_type_hints(AudioSettings)["he_aac"] == HeAac
-
-
-def test_lossless_literals():
-    from typing import get_args
-
-    from transcdr.types import AudioBitDepth, AudioContainer, AudioMode, FlacCompression
-
-    assert {"aac", "flac", "alac"} <= set(get_args(AudioMode))
-    assert get_args(AudioBitDepth) == ("source", "16", "24")
-    assert get_args(FlacCompression) == ("fast", "default", "best")
-    assert get_args(AudioContainer) == ("auto", "mp3", "flac", "m4a")
+def test_sizes_ladder_and_source_size_round_trip(make_client):
+    ladder = output_case("hls ladder")
+    webp = output_case("image lossless webp")
+    mp4 = output_case("single mp4")
+    for output in (ladder, webp, mp4):
+        rec = Recorder(json_response(201, {"id": "job_1", "object": "job", "output": output}))
+        job = make_client(rec).jobs.create(input="ast_1", output=output)
+        assert body(rec)["output"] == output
+        assert job["output"]["renditions"] == output["renditions"]
+    assert body(rec)["output"]["renditions"]["sizes"][0]["orientation"] == "fixed"
 
 
 def test_image_output_round_trip(make_client):
-    from typing import get_args
-
-    from transcdr.types import ImageFormat, ImageTier, PresetCategory
-
-    output = {
-        "mode": "image",
-        "renditions": [{"width": 1920, "height": 1920}, {"width": 641, "height": 17, "label": "small"}],
-        "image": {
-            "formats": ["avif", "jpeg"],
-            "quality": 70,
-            "lossless": False,
-            "keep_color_profile": True,
-            "frames": {"at_seconds": [1.5, 10]},
-        },
-    }
+    output = output_case("image stills")
     returned = {
         "id": "job_1",
         "object": "job",
         "status": "completed",
-        "output": {**output, "image": {"formats": ["avif", "jpeg"], "frames": {"count": 2}}},
+        "output": output,
         "outputs": [
-            {"label": "1920x1080-001.avif", "width": 1920, "height": 1080, "frames": 1, "bytes": 120_000,
-             "content_type": "image/avif", "path": "1920x1080-001.avif", "url": "https://x/1",
-             "format": "avif", "rendition": "1920x1080", "frame": 1, "at_seconds": 3.3},
-            {"label": "1920x1080-002.jpg", "width": 1920, "height": 1080, "frames": 1, "bytes": 310_000,
-             "content_type": "image/jpeg", "path": "1920x1080-002.jpg", "url": "https://x/2",
-             "format": "jpeg", "rendition": "1920x1080", "frame": 2, "at_seconds": 6.6},
+            {"label": "sheet-001.jpg", "width": 320, "height": 180, "frames": 1, "bytes": 12_000,
+             "content_type": "image/jpeg", "path": "sheet-001.jpg", "url": "https://x/1",
+             "format": "jpeg", "rendition": "sheet", "frame": 1, "at_seconds": 3.3},
+            {"label": "sheet-002.jpg", "width": 320, "height": 180, "frames": 1, "bytes": 13_000,
+             "content_type": "image/jpeg", "path": "sheet-002.jpg", "url": "https://x/2",
+             "format": "jpeg", "rendition": "sheet", "frame": 2, "at_seconds": 6.6},
         ],
         "billing": {"billable_minutes": 0, "billable_images": 2, "amount_cents": 1, "amount_usd": 0.004,
-                    "tier": "up_to_4mp"},
+                    "tier": "up_to_1mp"},
     }  # fmt: skip
     rec = Recorder(json_response(201, returned))
     job = make_client(rec).jobs.create(input="ast_1", output=output)
     assert body(rec)["output"] == output
-    assert job["output"]["mode"] == "image"
-    assert job["output"]["image"]["frames"]["count"] == 2
-    assert job["outputs"][1]["format"] == "jpeg"
-    assert job["outputs"][1]["rendition"] == "1920x1080"
+    assert job["output"]["image"]["frames"] == {"count": 12}
+    assert job["output"]["image"]["quality"] == {"jpeg": 80}
+    assert job["outputs"][1]["rendition"] == "sheet"
     assert job["outputs"][1]["frame"] == 2
-    assert job["outputs"][1]["at_seconds"] == 6.6
     assert job["billing"]["billable_images"] == 2
-    assert job["billing"]["tier"] == "up_to_4mp"
+
+
+def test_spec_literals():
+    from typing import get_args
+
+    from transcdr.types import (
+        AudioBitDepth,
+        AudioChannels,
+        AudioCodec,
+        AudioHandling,
+        ContainerFormat,
+        FlacCompression,
+        Fit,
+        HeAac,
+        ImageFormat,
+        ImageTier,
+        Kind,
+        Orientation,
+        PresetCategory,
+        VideoBitDepth,
+    )
+
+    assert get_args(Kind) == ("video", "audio", "image")
+    assert get_args(ContainerFormat) == ("mp4", "hls", "mp3", "flac", "m4a")
+    assert get_args(AudioHandling) == ("auto", "encode", "drop")
+    assert get_args(AudioCodec) == ("opus", "mp3", "aac", "flac", "alac")
+    assert get_args(AudioChannels) == ("source", "mono", "stereo", "5.1", "7.1")
+    assert get_args(AudioBitDepth) == ("source", "16", "24")
+    assert get_args(FlacCompression) == ("fast", "balanced", "best")
+    assert get_args(HeAac) == ("auto", "passthrough", "core")
+    assert get_args(VideoBitDepth) == ("from_color", "8bit", "10bit")
+    assert get_args(Fit) == ("contain", "cover", "pad", "stretch")
+    assert get_args(Orientation) == ("auto", "fixed")
     assert get_args(ImageFormat) == ("avif", "webp", "jpeg", "png")
     assert get_args(ImageTier) == ("up_to_1mp", "up_to_4mp", "over_4mp")
     assert "image" in get_args(PresetCategory)
@@ -492,12 +449,31 @@ def test_image_usage_rates_and_capabilities(make_client):
     assert c["limits"]["image"]["max_dimension"] == 8192
 
 
-def test_image_type_hints():
-    from typing import get_type_hints
+def test_spec_type_hints():
+    from typing import get_args, get_type_hints
 
-    from transcdr.types import Billing, ImageRateCard, ImageSettings, JobOutput, OutputSpec, Statement
+    from transcdr.types import (
+        AudioOutput,
+        Billing,
+        ImageOutput,
+        ImageRateCard,
+        ImageSettings,
+        Job,
+        JobOutput,
+        OutputSpec,
+        PresetProvenance,
+        Statement,
+        VideoOutput,
+    )
 
-    assert get_type_hints(OutputSpec)["image"].__args__[0] is ImageSettings
+    assert get_args(OutputSpec) == (VideoOutput, AudioOutput, ImageOutput)
+    assert get_type_hints(ImageOutput)["image"] is ImageSettings
+    assert set(VideoOutput.__required_keys__) == {
+        "kind", "container", "video", "audio", "renditions", "subtitles", "trim", "privacy"
+    }
+    assert set(ImageSettings.__required_keys__) == {"formats", "color_profile", "frames"}
+    assert set(ImageSettings.__optional_keys__) == {"lossless", "quality"}
+    assert get_args(get_type_hints(Job)["preset"])[0] is PresetProvenance
     assert set(get_type_hints(JobOutput)) >= {"format", "rendition", "frame", "at_seconds"}
     assert get_type_hints(Billing)["image_rates"] is ImageRateCard
     assert "usage_images" in get_type_hints(Statement)
