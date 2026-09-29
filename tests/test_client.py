@@ -125,21 +125,39 @@ def test_error_mapping(make_client, status, type_, cls):
 
 
 def test_validation_error_fields(make_client):
+    errors = [
+        {"param": "output.container.segment_seconds",
+         "message": "output.container.segment_seconds does not apply here: it applies when kind is video and "
+                    "container.format is hls. Remove it (or set it to null)."},
+        {"param": "output.video.crf", "message": "output.video.crf: must be between 0 and 63."},
+    ]  # fmt: skip
     body = error_body(
         "invalid_request_error",
         "validation_failed",
-        "The output.renditions field is required.",
-        param="output.renditions",
-        details={"output.renditions": ["The output.renditions field is required."]},
+        errors[0]["message"],
+        param=errors[0]["param"],
+        errors=errors,
         request_id="3f2a-1c",
     )
     rec = Recorder(json_response(422, body))
     with pytest.raises(InvalidRequestError) as info:
-        make_client(rec).jobs.create(input="https://x/in.mp4", output={"renditions": []})
+        make_client(rec).jobs.create(
+            input="https://x/in.mp4",
+            preset="hls-h264-abr@1",
+            output={"container": {"format": "mp4"}, "video": {"crf": 99}},
+        )
     err = info.value
-    assert err.param == "output.renditions"
-    assert err.details == {"output.renditions": ["The output.renditions field is required."]}
+    assert err.param == "output.container.segment_seconds"
+    assert err.errors == errors
     assert "validation_failed" in str(err) and "3f2a-1c" in str(err)
+    assert rec.json()["preset"] == "hls-h264-abr@1"
+
+
+def test_errors_is_empty_for_other_errors(make_client):
+    rec = Recorder(json_response(409, error_body("invalid_request_error", "conflict", "no")))
+    with pytest.raises(InvalidRequestError) as info:
+        make_client(rec).webhooks.create(url="https://example.com/hook")
+    assert info.value.errors == []
 
 
 def test_insufficient_scope(make_client):
@@ -280,7 +298,7 @@ def test_jobs_create_retry_reuses_same_key(make_client, sleeps):
         httpx.ConnectError("reset"),
         json_response(201, JOB, {"Idempotent-Replayed": "true"}),
     )
-    job = make_client(rec).jobs.create(input={"type": "asset", "asset_id": "ast_1"})
+    job = make_client(rec).jobs.create(input={"type": "asset", "asset_id": "ast_1"}, preset="web-av1-1080p")
     assert job["id"] == "job_1"
     keys = {r.headers["Idempotency-Key"] for r in rec.requests}
     assert len(rec.requests) == 3 and len(keys) == 1
@@ -290,8 +308,8 @@ def test_jobs_create_retry_reuses_same_key(make_client, sleeps):
 def test_each_create_gets_a_fresh_key(make_client):
     rec = Recorder(json_response(201, JOB), json_response(201, JOB))
     client = make_client(rec)
-    client.jobs.create(input="ast_1")
-    client.jobs.create(input="ast_1")
+    client.jobs.create(input="ast_1", preset="web-av1-1080p")
+    client.jobs.create(input="ast_1", preset="web-av1-1080p")
     assert rec.requests[0].headers["Idempotency-Key"] != rec.requests[1].headers["Idempotency-Key"]
     assert rec.json(0)["input"] == {"type": "asset", "asset_id": "ast_1"}
 
@@ -588,7 +606,7 @@ def test_billing_checkout_needs_exactly_one_of_plan_or_credit(make_client):
 def test_job_cost_cap_and_credit_errors(make_client):
     rec = Recorder(json_response(402, error_body("quota_error", "insufficient_credit", "Not enough credit.")))
     with pytest.raises(QuotaError) as info:
-        make_client(rec).jobs.create(input="ast_1", max_cost_cents=150)
+        make_client(rec).jobs.create(input="ast_1", preset="web-av1-1080p", max_cost_cents=150)
     assert info.value.code == "insufficient_credit"
     assert rec.json(0)["max_cost_cents"] == 150
 

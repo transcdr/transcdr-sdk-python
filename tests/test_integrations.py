@@ -249,7 +249,9 @@ async def test_async_integrations(make_async_client):
         name="ftp", kind="ftps", config={"host": "ftp.example.com", "username": "u"}, secrets={"password": "p"}
     )
     assert (await client.connections.browse("con_1")).data[0]["path"] == "a.mp4"
-    await client.automations.create(name="hook", trigger="hook", source={"connection_id": "con_1"})
+    await client.automations.create(
+        name="hook", trigger="hook", source={"connection_id": "con_1"}, preset="hls-av1-abr"
+    )
     assert (await client.automations.trigger("aut_1", paths=["a.mp4"]))["job_ids"] == ["job_9"]
     await client.automations.items("aut_1")
     await client.jobs.deliver("job_1", connection_id="con_1")

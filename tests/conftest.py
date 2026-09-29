@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 import httpx
@@ -12,6 +13,27 @@ BASE_URL = "https://api.test"
 API_KEY = "tdk_test_example"
 
 Handler = Callable[[httpx.Request], httpx.Response]
+
+#: Output specs and what the API says of them: the cases shared by every
+#: SDK's copy of the required-field table.
+OUTPUT_CASES: List[Dict[str, Any]] = json.loads(
+    (Path(__file__).parent / "fixtures" / "output-validation-cases.json").read_text(encoding="utf-8")
+)
+
+
+def output_case(name: str) -> Dict[str, Any]:
+    """A spec from the shared cases, by name (a fresh copy)."""
+    for case in OUTPUT_CASES:
+        if case["name"] == name:
+            return json.loads(json.dumps(case["output"]))
+    raise KeyError(name)
+
+
+#: Complete v2 specs: the contract's examples.
+HLS_CBR = output_case("hls cbr sizes")
+SINGLE_MP4 = output_case("single mp4")
+AUDIO_MP3 = output_case("audio mp3")
+STILLS = output_case("image stills")
 
 
 def json_response(status: int, body: Any, headers: Optional[Dict[str, str]] = None) -> httpx.Response:

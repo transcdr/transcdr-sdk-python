@@ -10,17 +10,17 @@ import pytest
 
 from transcdr import InvalidRequestError, NotFoundError, is_session
 
-from .conftest import AsyncRecorder, Recorder, error_body, json_response
+from .conftest import SINGLE_MP4, AsyncRecorder, Recorder, error_body, json_response
 
-PRESET = {"object": "preset", "id": "pre_1", "slug": "mine", "name": "Mine", "output": {}}
+PRESET = {"object": "preset", "id": "pre_1", "slug": "mine", "name": "Mine", "version": 1, "output": SINGLE_MP4}
 FP = {"set": True, "fingerprint": "hmac-sha256:3f9a0c1b2d4e"}
 
 CREATES = [
     ("/v1/assets", lambda c: c.assets.create(url="https://example.com/a.mp4")),
-    ("/v1/presets", lambda c: c.presets.create(name="Mine", output={})),
+    ("/v1/presets", lambda c: c.presets.create(name="Mine", output=SINGLE_MP4)),
     ("/v1/webhooks", lambda c: c.webhooks.create(url="https://example.com/hook")),
     ("/v1/connections", lambda c: c.connections.create(name="c", kind="s3", config={"bucket": "b"})),
-    ("/v1/automations", lambda c: c.automations.create(name="a", source={"connection_id": "con_1"})),
+    ("/v1/automations", lambda c: c.automations.create(name="a", source={"connection_id": "con_1"}, preset="hls-av1-abr")),
     ("/v1/api-keys", lambda c: c.api_keys.create(name="CI")),
     ("/v1/organization/members", lambda c: c.organization.members.create(email="a@b.c", role="member")),
     ("/v1/organizations", lambda c: c.organizations.create(name="Acme")),
@@ -39,7 +39,7 @@ def test_every_create_sends_an_idempotency_key(make_client, path, call):
 
 def test_create_takes_an_explicit_key(make_client):
     rec = Recorder(json_response(201, PRESET))
-    make_client(rec).presets.create(name="Mine", output={}, idempotency_key="preset-mine")
+    make_client(rec).presets.create(name="Mine", output=SINGLE_MP4, idempotency_key="preset-mine")
     assert rec.requests[0].headers["Idempotency-Key"] == "preset-mine"
 
 
@@ -49,7 +49,7 @@ def test_create_is_retried_with_the_same_key(make_client, sleeps):
         httpx.ConnectError("reset"),
         json_response(201, PRESET, {"Idempotent-Replayed": "true"}),
     )
-    preset = make_client(rec).presets.create(name="Mine", output={})
+    preset = make_client(rec).presets.create(name="Mine", output=SINGLE_MP4)
     assert preset["id"] == "pre_1"
     assert len(rec.requests) == 3
     assert len({r.headers["Idempotency-Key"] for r in rec.requests}) == 1
@@ -71,10 +71,10 @@ def test_non_create_posts_carry_no_key(make_client):
 
 def test_preset_replace_is_put(make_client):
     rec = Recorder(json_response(200, PRESET))
-    make_client(rec).presets.replace("pre_1", name="Mine", output={"codec": "av1"})
+    make_client(rec).presets.replace("pre_1", name="Mine", output=SINGLE_MP4)
     req = rec.requests[0]
     assert (req.method, req.url.path) == ("PUT", "/v1/presets/pre_1")
-    assert rec.json() == {"name": "Mine", "output": {"codec": "av1"}}
+    assert rec.json() == {"name": "Mine", "output": SINGLE_MP4}
     assert "Idempotency-Key" not in req.headers
 
 
@@ -110,8 +110,9 @@ def test_automation_update_clears_with_none_and_keeps_what_is_left_out(make_clie
     client.automations.update("aut_1", name="x", enabled=None)
     assert rec.json(1) == {"name": "x"}
     # On create, None still means "not given".
-    client.automations.create(name="a", source={"connection_id": "con_1"}, preset=None)
-    assert rec.json(2) == {"name": "a", "source": {"connection_id": "con_1"}}
+    client.automations.create(name="a", source={"connection_id": "con_1"}, preset=None, output=SINGLE_MP4,
+                              destination=None)  # fmt: skip
+    assert rec.json(2) == {"name": "a", "source": {"connection_id": "con_1"}, "output": SINGLE_MP4}
 
 
 def test_webhook_connection_and_organization_clear_with_none(make_client):
@@ -163,8 +164,8 @@ def test_is_session():
 async def test_async_creates_and_replace(make_async_client):
     rec = AsyncRecorder(json_response(201, PRESET), json_response(200, PRESET), json_response(200, {}))
     client = make_async_client(rec)
-    await client.presets.create(name="Mine", output={})
-    await client.presets.replace("pre_1", name="Mine", output={})
+    await client.presets.create(name="Mine", output=SINGLE_MP4)
+    await client.presets.replace("pre_1", name="Mine", output=SINGLE_MP4)
     await client.automations.update("aut_1", destination=None)
     assert "Idempotency-Key" in rec.requests[0].headers
     assert rec.requests[1].method == "PUT"

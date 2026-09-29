@@ -10,7 +10,7 @@
     job = client.jobs.wait(job["id"])
 """
 
-from . import types, webhooks
+from . import output, types, webhooks
 from ._base_client import DEFAULT_BASE_URL, DEFAULT_MAX_RETRIES, DEFAULT_TIMEOUT, NOT_GIVEN
 from ._client import AsyncTranscdr, Transcdr
 from ._errors import (
@@ -28,6 +28,7 @@ from ._errors import (
     WaitTimeoutError,
 )
 from ._version import __version__
+from .output import validate_output
 from .types import is_session
 from .pagination import AsyncPage, SyncPage
 
@@ -38,12 +39,14 @@ __all__ = [
     "SyncPage",
     "AsyncPage",
     "types",
+    "output",
     "webhooks",
     "DEFAULT_BASE_URL",
     "DEFAULT_TIMEOUT",
     "DEFAULT_MAX_RETRIES",
     "NOT_GIVEN",
     "is_session",
+    "validate_output",
     "TranscdrError",
     "APIConnectionError",
     "APITimeoutError",
