@@ -11,7 +11,6 @@ from ._base_client import (
     SyncAPIClient,
     Timeout,
 )
-from .resources.admin import Admin, AsyncAdmin
 from .resources.announcements import Announcements, AsyncAnnouncements, AsyncChangelog, Changelog
 from .resources.api_keys import ApiKeys, AsyncApiKeys
 from .resources.assets import Assets, AsyncAssets
@@ -108,8 +107,6 @@ class Transcdr(SyncAPIClient):
         self.announcements = Announcements(self)
         #: The public changelog; no key needed.
         self.changelog = Changelog(self)
-        #: The platform operator console (operator session tokens only).
-        self.admin = Admin(self)
 
     def with_options(
         self,
@@ -184,7 +181,6 @@ class AsyncTranscdr(AsyncAPIClient):
         self.stats = AsyncStatsResource(self)
         self.announcements = AsyncAnnouncements(self)
         self.changelog = AsyncChangelog(self)
-        self.admin = AsyncAdmin(self)
 
     def with_options(
         self,

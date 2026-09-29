@@ -176,10 +176,6 @@ __all__ = [
     "AnnouncementLink",
     "ServiceCredit",
     "Announcement",
-    "AdminOverview",
-    "AdminJob",
-    "IncidentDetector",
-    "Incident",
 ]
 
 Metadata = Dict[str, str]
@@ -497,11 +493,19 @@ class Trim(TypedDict):
     end: Union[float, Source]
 
 
-class PrivacyPreset(TypedDict):
-    """A privacy preset: ``strip_all`` strips every category,
-    ``strip_location`` only the location, ``keep_all`` keeps them all."""
-
+class _PrivacyPresetRequired(TypedDict):
     preset: PrivacyPresetName
+
+
+class PrivacyPreset(_PrivacyPresetRequired, total=False):
+    """A privacy preset, refined by any of the four categories given beside
+    it: ``strip_all`` strips every category, ``strip_location`` only the
+    location, ``keep_all`` keeps them all."""
+
+    location: LocationHandling
+    capture_time: CaptureTimeHandling
+    device: DeviceHandling
+    descriptive: DescriptiveHandling
 
 
 class PrivacyFields(TypedDict):
@@ -513,7 +517,8 @@ class PrivacyFields(TypedDict):
     descriptive: DescriptiveHandling
 
 
-#: Which identifying metadata survives: a preset, or all four categories.
+#: Which identifying metadata survives: a preset (with any categories over
+#: it), or all four categories.
 Privacy = Union[PrivacyPreset, PrivacyFields]
 
 
@@ -571,8 +576,10 @@ class OutputOverrides(TypedDict, total=False):
 class PresetProvenance(TypedDict, total=False):
     """Where a job's spec came from."""
 
-    #: The preset as the request named it (a slug or an id).
+    #: The preset's id (``pre_...``, or a system preset's slug).
     id: str
+    #: Its slug.
+    slug: str
     #: The version it resolved to.
     version: int
     #: The request's ``output`` over it, in v2 form; ``None`` when none.
@@ -1733,7 +1740,7 @@ class Announcement(TypedDict, total=False):
     title: str
     #: Markdown.
     body: str
-    #: ``None`` for a draft (operator console only).
+    #: When it was published.
     published_at: Optional[str]
     link: Optional[AnnouncementLink]
     #: Changelog entries only; may be empty.
@@ -1743,55 +1750,3 @@ class Announcement(TypedDict, total=False):
     #: Always ``False`` for API keys, which have no user to remember it for.
     seen: bool
     seen_at: Optional[str]
-
-
-# --------------------------------------------------------------------------
-# Platform operator console
-# --------------------------------------------------------------------------
-
-
-class AdminOverview(TypedDict, total=False):
-    object: Literal["admin_overview"]
-    organizations: int
-    #: Live jobs only.
-    jobs_by_status: Dict[str, int]
-
-
-class AdminJob(Job, total=False):
-    """A job as the operator console sees it."""
-
-    #: The organization's id.
-    organization: Any
-    #: Operator-only processing details, as returned.
-    internals: Optional[Dict[str, Any]]
-
-
-class IncidentDetector(TypedDict, total=False):
-    name: str
-    summary: str
-    filters: Dict[str, Any]
-
-
-class Incident(TypedDict, total=False):
-    """A service incident whose affected jobs are credited."""
-
-    object: Literal["incident"]
-    id: str
-    title: str
-    #: What customers are told.
-    description: str
-    detector: Optional[str]
-    filters: Dict[str, Any]
-    window_start: str
-    window_end: str
-    multiplier: int
-    status: str
-    affected_jobs: int
-    affected_organizations: int
-    review_jobs: int
-    credit_usd: float
-    created_by: str
-    created_at: str
-    applied_at: Optional[str]
-    #: The affected jobs, on retrieve, preview and apply.
-    impacts: List[Dict[str, Any]]

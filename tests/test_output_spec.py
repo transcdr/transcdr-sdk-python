@@ -31,6 +31,9 @@ def test_validate_output_matches_the_api(case):
 
 def test_the_table_names_every_group_member():
     paths = {f[0] for f in FIELDS}
+    assert {f[0] for f in FIELDS if f[5] is not None} == {
+        "privacy.location", "privacy.capture_time", "privacy.device", "privacy.descriptive"
+    }
     for _name, parent, members, _when in GROUPS:
         assert parent in paths
         assert set(members) <= paths
@@ -81,7 +84,7 @@ def test_preset_overrides_are_sent_unchecked(make_client):
         "object": "job",
         "id": "job_1",
         "preset_id": "social-vertical-1080x1920",
-        "preset": {"id": "social-vertical-1080x1920", "version": 1,
+        "preset": {"id": "social-vertical-1080x1920", "slug": "social-vertical-1080x1920", "version": 1,
                    "overrides": {"video": {"frame_rate": {"max": 24}}}},
         "output": SINGLE_MP4,
     }  # fmt: skip
@@ -97,6 +100,7 @@ def test_preset_overrides_are_sent_unchecked(make_client):
         "output": {"video": {"frame_rate": {"max": 24}}, "container": {"segment_seconds": None}},
     }
     assert job["preset"]["version"] == 1
+    assert job["preset"]["slug"] == "social-vertical-1080x1920"
     assert job["preset"]["overrides"] == {"video": {"frame_rate": {"max": 24}}}
     assert job["output"]["kind"] == "video"
 

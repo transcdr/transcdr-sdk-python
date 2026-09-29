@@ -124,14 +124,16 @@ def validate_output(spec: Any) -> List[FieldError]:
 
     # A field that does not apply is reported once, not with each of its own.
     refused: List[str] = []
-    for field_path, required, when, is_object, _group in FIELDS:
+    for field_path, required, when, is_object, _group, allowed in FIELDS:
         if privacy_missing and field_path.startswith("privacy"):
             continue
-        applies = _holds(spec, when)
+        # Required only under ``when``; also allowed under ``allowed``.
+        required_here = _holds(spec, when)
+        applies = required_here or (allowed is not None and _holds(spec, allowed))
         for path, value in _instances(spec, field_path):
             if any(path.startswith(r + ".") for r in refused):
                 continue
-            if value is None and applies and required and not is_object:
+            if value is None and required_here and required and not is_object:
                 errors.append(_error(path, f"output.{path} is required when {_describe(when)}."))
             elif value is not None and not applies:
                 refused.append(path)

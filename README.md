@@ -101,7 +101,7 @@ A job's `output` says what it produces, declared in sections:
 | `renditions` | The sizes produced: exactly one of `sizes`, `ladder` (video) or `source_size` | video, image |
 | `subtitles` | Which subtitle tracks are carried: `tracks` (`all`, `none`) or `languages` | video |
 | `trim` | Which part of the source is used | video |
-| `privacy` | Which identifying metadata survives: `preset`, or all four of `location`, `capture_time`, `device`, `descriptive` | all |
+| `privacy` | Which identifying metadata survives: `preset` (any of `location`, `capture_time`, `device`, `descriptive` beside it refine it), or all four without one | all |
 
 **Nothing has a default.** A spec sent without a preset states every field its kind, container,
 codec and handling need, and the SDK fills nothing in. A value that follows the source is a value
@@ -246,7 +246,7 @@ job = client.jobs.create(
     preset="social-vertical-1080x1920@1",
     output={"video": {"frame_rate": {"max": 24}}},
 )
-job["preset"]   # {"id": "social-vertical-1080x1920", "version": 1, "overrides": {"video": {...}}}
+job["preset"]   # {"id": ..., "slug": "social-vertical-1080x1920", "version": 1, "overrides": {"video": {...}}}
 job["output"]   # the resolved, complete spec: what runs, and what a rerun uses
 
 # An HLS preset turned into an MP4: segment_seconds no longer applies, so remove it.
@@ -260,7 +260,7 @@ client.presets.get_version("web-avif", 1)          # GET /v1/presets/web-avif@1
 client.presets.update("pre_...", output={"video": {"crf": 23}})   # a new version
 ```
 
-A job's `preset` is `{"id", "version", "overrides"}`, or `None` when it was given a whole spec.
+A job's `preset` is `{"id", "slug", "version", "overrides"}`, or `None` when it was given a whole spec.
 Jobs, presets and automations always return the resolved spec, with `privacy` written out as all
 four categories. An automation stores `preset` and its `output` overrides, and shows what they
 resolve to now as `resolved_output`.
@@ -402,7 +402,6 @@ Every method has an async twin on `AsyncTranscdr`.
 | `client.stats` | `retrieve` (public platform statistics) |
 | `client.announcements` | `list(unseen=, kind=, limit=)`, `mark_seen`, `mark_all_seen` |
 | `client.changelog` | `list` (public) |
-| `client.admin` | `overview`, `jobs`, `organizations`, `update_organization`, `grant_credit`; `.announcements`: `list`, `create`, `update`, `delete`; `.incidents`: `detectors`, `list`, `create`, `retrieve`, `preview`, `apply` (platform operators only) |
 
 Anything not wrapped yet: `client.request("GET", "/v1/openapi.json")`.
 

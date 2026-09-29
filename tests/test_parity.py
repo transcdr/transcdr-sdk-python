@@ -1,6 +1,5 @@
 """Organizations, connection and destination checks, SNS/SQS destinations, queue
-automations, the input report, announcements, the changelog and the operator
-console: the surface shared with the TypeScript SDK."""
+automations, the input report, announcements and the changelog: the surface shared with the TypeScript SDK."""
 
 from __future__ import annotations
 
@@ -10,7 +9,7 @@ from typing import Any, Dict, List
 
 import pytest
 
-from transcdr import NOT_GIVEN, TranscdrError
+from transcdr import TranscdrError
 
 from .conftest import API_KEY, BASE_URL, AsyncRecorder, Recorder, json_response, output_case
 
@@ -539,81 +538,6 @@ def test_changelog_is_public_and_paginated(make_client, monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# The operator console
-# --------------------------------------------------------------------------
-
-
-def test_admin(make_client):
-    responses: List[Any] = [
-        {"object": "admin_overview", "organizations": 3, "jobs_by_status": {"queued": 1}},
-        {**LIST, "data": [{"id": "job_1", "organization": "org_1", "internals": None}]},
-        {**LIST, "data": [{"id": "org_1"}]},
-        {"id": "org_1", "plan": "growth"},
-        {"object": "billing"},
-    ]
-    rec = Recorder(*(json_response(200, r) for r in responses))
-    admin = make_client(rec).admin
-    assert admin.overview()["organizations"] == 3
-    admin.jobs(status="failed", limit=10)
-    assert path(rec) == "GET /v1/admin/jobs?status=failed&limit=10"
-    admin.organizations()
-    assert path(rec) == "GET /v1/admin/organizations"
-    admin.update_organization("org_1", plan="growth", suspended=False)
-    assert path(rec) == "PATCH /v1/admin/organizations/org_1"
-    assert body(rec) == {"plan": "growth", "suspended": False}
-    admin.grant_credit("org_1", amount_cents=5000, description="Goodwill", expires_in_days=30)
-    assert path(rec) == "POST /v1/admin/organizations/org_1/credit"
-    assert body(rec) == {"amount_cents": 5000, "description": "Goodwill", "expires_in_days": 30}
-
-
-def test_admin_announcements(make_client):
-    rec = Recorder(*(json_response(200, ANNOUNCEMENT) for _ in range(4)), json_response(204, None))
-    announcements = make_client(rec).admin.announcements
-    announcements.create(title="New", body="**Bold**")
-    assert path(rec) == "POST /v1/admin/announcements" and body(rec) == {"title": "New", "body": "**Bold**"}
-    announcements.create(title="Draft", body="Soon", published_at=None, link={"label": "Try", "url": "/app"})
-    assert body(rec) == {"title": "Draft", "body": "Soon", "link": {"label": "Try", "url": "/app"}, "published_at": None}
-    announcements.update("ann_1", link=None, published_at=dt.datetime(2026, 10, 1, 9, 0))
-    assert path(rec) == "PATCH /v1/admin/announcements/ann_1"
-    assert body(rec) == {"link": None, "published_at": "2026-10-01T09:00:00+00:00"}
-    announcements.update("ann_1", tags=["integrations"], title=NOT_GIVEN)
-    assert body(rec) == {"tags": ["integrations"]}
-    announcements.delete("ann_1")
-    assert path(rec) == "DELETE /v1/admin/announcements/ann_1"
-
-
-def test_admin_incidents(make_client):
-    incident = {"object": "incident", "id": "inc_1", "status": "draft"}
-    rec = Recorder(json_response(200, {**LIST, "data": [{"name": "dropped_audio"}]}), json_response(200, LIST),
-                   *(json_response(200, incident) for _ in range(4)))  # fmt: skip
-    incidents = make_client(rec).admin.incidents
-    assert incidents.detectors().data[0]["name"] == "dropped_audio"
-    assert path(rec) == "GET /v1/admin/incident-detectors"
-    incidents.list()
-    assert path(rec) == "GET /v1/admin/incidents"
-    incidents.create(
-        title="Dropped audio",
-        description="Some outputs had no audio.",
-        window_start=dt.datetime(2026, 9, 20, tzinfo=dt.timezone.utc),
-        detector="dropped_audio",
-        multiplier=3,
-    )
-    assert body(rec) == {
-        "title": "Dropped audio",
-        "description": "Some outputs had no audio.",
-        "window_start": "2026-09-20T00:00:00+00:00",
-        "detector": "dropped_audio",
-        "multiplier": 3,
-    }
-    incidents.retrieve("inc_1")
-    assert path(rec) == "GET /v1/admin/incidents/inc_1"
-    incidents.preview("inc_1")
-    assert path(rec) == "POST /v1/admin/incidents/inc_1/preview"
-    incidents.apply("inc_1", include_review=True)
-    assert path(rec) == "POST /v1/admin/incidents/inc_1/apply" and body(rec) == {"include_review": True}
-
-
-# --------------------------------------------------------------------------
 # Async twins
 # --------------------------------------------------------------------------
 
@@ -637,10 +561,6 @@ async def test_async_parity(make_async_client):
         json_response(200, LIST),  # announcements.list
         json_response(204, None),  # mark_all_seen
         json_response(200, LIST),  # changelog
-        json_response(200, {"object": "admin_overview"}),  # admin.overview
-        json_response(200, {"object": "billing"}),  # grant_credit
-        json_response(200, ANNOUNCEMENT),  # admin announcement draft
-        json_response(200, {"id": "inc_1"}),  # incidents.apply
     )
     client = make_async_client(rec)
     await client.auth.switch("org_2")
@@ -669,14 +589,7 @@ async def test_async_parity(make_async_client):
     assert body(rec) == {"all": True}
     await client.changelog.list()
     assert path(rec) == "GET /v1/changelog"
-    await client.admin.overview()
-    await client.admin.grant_credit("org_1", amount_cents=-100)
-    assert body(rec) == {"amount_cents": -100}
-    await client.admin.announcements.create(title="Draft", body="Soon", published_at=None)
-    assert body(rec) == {"title": "Draft", "body": "Soon", "published_at": None}
-    await client.admin.incidents.apply("inc_1")
-    assert body(rec) == {"include_review": False}
-    assert len(rec.requests) == len(rec.bodies) == 19
+    assert len(rec.requests) == len(rec.bodies) == 15
     await client.close()
 
 
@@ -685,6 +598,6 @@ def test_new_clients_are_wired():
 
     for cls in (Transcdr, AsyncTranscdr):
         client = cls(api_key=API_KEY, base_url=BASE_URL)
-        for name in ("organizations", "announcements", "changelog", "admin"):
+        for name in ("organizations", "announcements", "changelog"):
             assert hasattr(client, name), name
-        assert hasattr(client.admin, "incidents") and hasattr(client.admin, "announcements")
+        assert not hasattr(client, "admin")

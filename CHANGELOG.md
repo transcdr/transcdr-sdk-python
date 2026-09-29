@@ -24,6 +24,12 @@ read.
 - Removed the v1 types `Mode`, `AudioMode`, `AudioContainer`, `Quality`, `Rendition`,
   `AudioSettings` and `OutputSpecInput`.
 
+### Removed
+
+- The platform operator console (`client.admin`, with its announcements and incidents, and the
+  `AdminOverview`, `AdminJob`, `Incident` and `IncidentDetector` types). It was never usable with
+  a customer's credentials, and it is not part of the public SDK.
+
 ### Added
 
 - `transcdr.validate_output(spec)`: every missing field (by full path, with the condition that
@@ -32,11 +38,12 @@ read.
 - `TranscdrError.errors`: a 422's `error.errors`, every failure of a refused spec.
 - `presets.versions(id)` and `presets.get_version(id, n)`; `Preset.version`; `preset="slug@N"`
   pins a version.
-- `Job.preset`: `{id, version, overrides}`, where the spec came from.
+- `Job.preset`: `{id, slug, version, overrides}`, where the spec came from.
 - `Automation.resolved_output`: the spec its preset and overrides resolve to now.
 - `Capabilities.output`: the spec's fields, conditions, groups, containers, audio codecs and
   follow values, as data.
-- `privacy` types: `PrivacyPreset`, `PrivacyFields` and the category values.
+- `privacy` types: `PrivacyPreset` (a preset, refined by any categories given beside it),
+  `PrivacyFields` (all four, no preset) and the category values.
 
 ### Migrating from v1
 
