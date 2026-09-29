@@ -386,6 +386,123 @@ def test_lossless_literals():
     assert get_args(AudioContainer) == ("auto", "mp3", "flac", "m4a")
 
 
+def test_image_output_round_trip(make_client):
+    from typing import get_args
+
+    from transcdr.types import ImageFormat, ImageTier, PresetCategory
+
+    output = {
+        "mode": "image",
+        "renditions": [{"width": 1920, "height": 1920}, {"width": 641, "height": 17, "label": "small"}],
+        "image": {
+            "formats": ["avif", "jpeg"],
+            "quality": 70,
+            "lossless": False,
+            "keep_color_profile": True,
+            "frames": {"at_seconds": [1.5, 10]},
+        },
+    }
+    returned = {
+        "id": "job_1",
+        "object": "job",
+        "status": "completed",
+        "output": {**output, "image": {"formats": ["avif", "jpeg"], "frames": {"count": 2}}},
+        "outputs": [
+            {"label": "1920x1080-001.avif", "width": 1920, "height": 1080, "frames": 1, "bytes": 120_000,
+             "content_type": "image/avif", "path": "1920x1080-001.avif", "url": "https://x/1",
+             "format": "avif", "rendition": "1920x1080", "frame": 1, "at_seconds": 3.3},
+            {"label": "1920x1080-002.jpg", "width": 1920, "height": 1080, "frames": 1, "bytes": 310_000,
+             "content_type": "image/jpeg", "path": "1920x1080-002.jpg", "url": "https://x/2",
+             "format": "jpeg", "rendition": "1920x1080", "frame": 2, "at_seconds": 6.6},
+        ],
+        "billing": {"billable_minutes": 0, "billable_images": 2, "amount_cents": 1, "amount_usd": 0.004,
+                    "tier": "up_to_4mp"},
+    }  # fmt: skip
+    rec = Recorder(json_response(201, returned))
+    job = make_client(rec).jobs.create(input="ast_1", output=output)
+    assert body(rec)["output"] == output
+    assert job["output"]["mode"] == "image"
+    assert job["output"]["image"]["frames"]["count"] == 2
+    assert job["outputs"][1]["format"] == "jpeg"
+    assert job["outputs"][1]["rendition"] == "1920x1080"
+    assert job["outputs"][1]["frame"] == 2
+    assert job["outputs"][1]["at_seconds"] == 6.6
+    assert job["billing"]["billable_images"] == 2
+    assert job["billing"]["tier"] == "up_to_4mp"
+    assert get_args(ImageFormat) == ("avif", "webp", "jpeg", "png")
+    assert get_args(ImageTier) == ("up_to_1mp", "up_to_4mp", "over_4mp")
+    assert "image" in get_args(PresetCategory)
+
+
+IMAGE_RATES = {
+    "unit": "output_image",
+    "currency": "usd",
+    "up_to_1mp": 0.001,
+    "up_to_4mp": 0.002,
+    "over_4mp": 0.004,
+    "tiers": {"up_to_1mp": "up to 1 megapixel", "up_to_4mp": "over 1, up to 4 megapixels",
+              "over_4mp": "over 4 megapixels"},
+}  # fmt: skip
+
+
+def test_image_usage_rates_and_capabilities(make_client):
+    usage = {
+        "object": "usage",
+        "from": "2026-09-01",
+        "to": "2026-09-30",
+        "granularity": "day",
+        "totals": {"jobs": 2, "billable_minutes": 1.5, "billable_images": 4, "input_minutes": 1.5,
+                   "output_bytes": 9, "amount_cents": 3, "amount_usd": 0.025},
+        "by_tier": {"sd": 0, "hd": 1.5, "uhd": 0},
+        "by_image_tier": {"up_to_1mp": 1, "up_to_4mp": 1, "over_4mp": 2},
+        "by_codec": {"av1": 1.5, "h264": 0, "h265": 0},
+        "series": [{"date": "2026-09-01", "jobs": 2, "billable_minutes": 1.5, "billable_images": 4,
+                    "amount_cents": 3, "amount_usd": 0.025}],
+    }  # fmt: skip
+    caps = {
+        "object": "capabilities",
+        "image_formats": [
+            {"id": "avif", "name": "AVIF", "default": True, "lossy": True, "lossless": False, "alpha": True,
+             "default_quality": 60},
+            {"id": "png", "name": "PNG", "default": False, "lossy": False, "lossless": True, "alpha": True},
+        ],
+        "input_image_formats": ["jpeg", "png", "heic"],
+        "limits": {"image": {"min_dimension": 16, "max_dimension": 8192, "max_outputs": 200, "max_frames": 100,
+                             "max_input_megapixels": 100}},
+    }  # fmt: skip
+    rec = Recorder(
+        json_response(200, usage),
+        json_response(200, {"object": "billing", "image_rates": IMAGE_RATES, "usage_minutes": 1.5, "usage_images": 4}),
+        json_response(200, {**LIST, "data": [{"object": "plan", "id": "free", "image_rates": IMAGE_RATES}]}),
+        json_response(200, caps),
+    )
+    client = make_client(rec)
+    u = client.usage.retrieve()
+    assert u["totals"]["billable_images"] == 4
+    assert u["by_image_tier"]["over_4mp"] == 2
+    assert u["series"][0]["billable_images"] == 4
+    b = client.billing.retrieve()
+    assert b["image_rates"]["unit"] == "output_image"
+    assert b["usage_images"] == 4
+    assert client.plans.list()[0]["image_rates"]["over_4mp"] == 0.004
+    c = client.capabilities.retrieve()
+    assert c["image_formats"][0]["default_quality"] == 60
+    assert "default_quality" not in c["image_formats"][1]
+    assert "heic" in c["input_image_formats"]
+    assert c["limits"]["image"]["max_dimension"] == 8192
+
+
+def test_image_type_hints():
+    from typing import get_type_hints
+
+    from transcdr.types import Billing, ImageRateCard, ImageSettings, JobOutput, OutputSpec, Statement
+
+    assert get_type_hints(OutputSpec)["image"].__args__[0] is ImageSettings
+    assert set(get_type_hints(JobOutput)) >= {"format", "rendition", "frame", "at_seconds"}
+    assert get_type_hints(Billing)["image_rates"] is ImageRateCard
+    assert "usage_images" in get_type_hints(Statement)
+
+
 # --------------------------------------------------------------------------
 # Usage: the input report
 # --------------------------------------------------------------------------

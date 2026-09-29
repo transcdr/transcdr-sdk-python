@@ -201,6 +201,56 @@ an `.m4a`). In category `archive`, `audio-flac` is a native `.flac` at best comp
 `social-vertical-1080x1920`, `hls-h264-surround` and `mp4-h264-surround-1080p`, now in category
 `tv`) use AAC audio.
 
+### Image jobs
+
+`"mode": "image"` makes still images, of an image input (JPEG, PNG, WebP, AVIF, GIF, TIFF, BMP,
+HEIC) or taken from a video. Every rendition is made in every format in `image.formats`
+(`transcdr.types.ImageFormat`): `"avif"` (the default), `"webp"`, `"jpeg"` and `"png"`, one to four
+of them. Image renditions are 16 to 8192 on a side, odd sizes allowed, and fit as video renditions do.
+
+- `image.quality` (1 to 100) applies to the lossy formats; left out, each has its own default (AVIF
+  60, WebP 80, JPEG 82). `image.lossless = True` makes WebP lossless; PNG always is.
+- Outputs are upright, sRGB unless `image.keep_color_profile = True`, and never carry EXIF, XMP or GPS.
+- From a video, `image.frames` picks the stills: `{"at_seconds": [1.5, 10]}` or `{"count": 12}`
+  evenly spaced. Left out, one frame 10% of the way in.
+- Each output carries its `format`, its `rendition`, and for a video's stills its `frame` (from 1)
+  and `at_seconds`.
+- Images are billed per output image by the pixels it came out at: `billing.billable_images` counts
+  them and `billing.tier` is `"up_to_1mp"`, `"up_to_4mp"` or `"over_4mp"`
+  (`transcdr.types.ImageTier`). The prices are `image_rates` on a plan and on `client.billing.retrieve()`.
+
+```python
+# A photo as AVIF with a JPEG fallback, at two sizes.
+job = client.jobs.create(
+    input="ast_...",
+    output={
+        "mode": "image",
+        "renditions": [{"width": 1920, "height": 1920}, {"width": 640, "height": 640, "label": "small"}],
+        "image": {"formats": ["avif", "jpeg"], "quality": 70},
+    },
+)
+
+# Twelve evenly spaced JPEG stills of a video.
+client.jobs.create(
+    input="ast_...",
+    output={
+        "mode": "image",
+        "renditions": [{"width": 480, "height": 270}],
+        "image": {"formats": ["jpeg"], "frames": {"count": 12}},
+    },
+)
+
+job = client.jobs.wait(job["id"])
+for output in job["outputs"]:
+    print(output["rendition"], output["format"], output["url"])
+print(job["billing"]["billable_images"], job["billing"]["tier"])
+```
+
+Image system presets (category `image`): `web-avif` and `web-webp` (1920, 1280 and 640 wide),
+`thumbnail-jpeg`, `png-lossless`, `video-poster` (AVIF and JPEG of the frame 10% in) and
+`contact-sheet` (12 evenly spaced JPEG stills of a video). `client.capabilities.retrieve()` lists
+the `image_formats`, the `input_image_formats` and `limits["image"]`.
+
 ### Async
 
 ```python
@@ -352,7 +402,7 @@ client.with_options(max_retries=0).jobs.retrieve("job_...")
 
 ## Preset categories and compatibility
 
-Every preset has a `category` (`web`, `mobile`, `streaming`, `tv`, `social`, `audio`, `archive`),
+Every preset has a `category` (`web`, `mobile`, `streaming`, `tv`, `social`, `audio`, `archive`, `image`),
 the group it is shown in, and `compatibility`: the platforms its output plays on (`web`, `ios`,
 `android`, `smart_tv`, `legacy`, `editing`), with `compatibility_notes` giving each one's minimum
 versions and conditions, such as audio that needs an AAC source. Both are derived from the

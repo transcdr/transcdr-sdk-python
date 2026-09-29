@@ -25,6 +25,10 @@ __all__ = [
     "HeAac",
     "Fit",
     "Orientation",
+    "ImageFormat",
+    "ImageTier",
+    "ImageFrames",
+    "ImageSettings",
     "Rendition",
     "Ladder",
     "Quality",
@@ -75,6 +79,8 @@ __all__ = [
     "UsagePoint",
     "Usage",
     "RateCard",
+    "ImageRateCard",
+    "ImagesByTier",
     "Plan",
     "CreditBuckets",
     "MonthSpend",
@@ -90,6 +96,8 @@ __all__ = [
     "InvoiceLine",
     "Invoice",
     "Capabilities",
+    "ImageFormatInfo",
+    "ImageLimits",
     "Status",
     "StatsTotals",
     "StatsLast24h",
@@ -131,10 +139,16 @@ Metadata = Dict[str, str]
 JobStatus = Literal["queued", "scheduled", "running", "uploading", "completed", "failed", "canceled"]
 Stage = Literal["waiting", "fetching", "probing", "encoding", "uploading", "done"]
 Codec = Literal["av1", "h264", "h265"]
-#: ``single`` (one MP4), ``hls`` (an adaptive ladder) or ``audio`` (the audio
+#: ``single`` (one MP4), ``hls`` (an adaptive ladder), ``audio`` (the audio
 #: alone as one file: an ``.mp3``, ``.flac`` or ``.m4a``; see
-#: ``AudioSettings.container``).
-Mode = Literal["single", "hls", "audio"]
+#: ``AudioSettings.container``) or ``image`` (still images of an image or a
+#: video; see ``OutputSpec.image``).
+Mode = Literal["single", "hls", "audio", "image"]
+#: An image output format: ``avif`` (the default, the smallest), ``webp``,
+#: ``jpeg`` or ``png`` (always lossless).
+ImageFormat = Literal["avif", "webp", "jpeg", "png"]
+#: An output image's price tier, by the pixels it came out at.
+ImageTier = Literal["up_to_1mp", "up_to_4mp", "over_4mp"]
 #: ``auto`` passes compatible audio through and transcodes the rest (to Opus,
 #: or to MP3 in an audio-only ``.mp3``). ``aac`` is AAC-LC, the choice that
 #: plays on the most devices (an AAC source passes through). ``mp3`` is
@@ -190,9 +204,11 @@ class Rendition(TypedDict, total=False):
     enlarged past its own size unless ``upscale`` is on. Each output reports
     the size it came out at."""
 
-    #: The maximum width; even, 64-7680.
+    #: The maximum width; even, 64-7680. Mode ``image``: 16-8192, odd sizes
+    #: allowed.
     width: int
-    #: The maximum height; even, 64-4320.
+    #: The maximum height; even, 64-4320. Mode ``image``: 16-8192, odd sizes
+    #: allowed.
     height: int
     #: This rung's constant rate, e.g. ``"3M"`` or ``"800k"`` (100k to 200M), with
     #: ``quality.target="cbr"`` only. Without it the rung takes
@@ -254,6 +270,34 @@ class Trim(TypedDict, total=False):
     end: Optional[float]
 
 
+class ImageFrames(TypedDict, total=False):
+    """A video input's stills in an image job: at these times, or this many
+    evenly spaced. Give one or the other; neither is one frame 10% of the way
+    in. An image input refuses ``frames``."""
+
+    #: Seconds from the start, 1 to 100 of them, each within the video.
+    at_seconds: List[float]
+    #: 1 to 100 stills, evenly spaced through the video.
+    count: int
+
+
+class ImageSettings(TypedDict, total=False):
+    """Mode ``image`` only: every rendition is made in every format."""
+
+    #: 1 to 4 distinct formats; ``["avif"]`` when left out.
+    formats: List[ImageFormat]
+    #: 1 to 100, for the lossy formats. Left out, each format's own default
+    #: (AVIF 60, WebP 80, JPEG 82).
+    quality: int
+    #: Lossless WebP. Only with ``webp`` and ``png`` (PNG is always lossless).
+    lossless: bool
+    #: Keep the source's colour profile instead of converting to sRGB. EXIF,
+    #: XMP and GPS are never kept.
+    keep_color_profile: bool
+    #: A video input's stills.
+    frames: ImageFrames
+
+
 class OutputSpec(TypedDict, total=False):
     mode: Mode
     codec: Codec
@@ -274,6 +318,9 @@ class OutputSpec(TypedDict, total=False):
     max_fps: Optional[float]
     filters: Optional[str]
     trim: Optional[Trim]
+    #: Mode ``image`` only: the formats, quality and, for a video input, which
+    #: stills. Absent for other modes.
+    image: Optional[ImageSettings]
 
 
 #: A partial spec, as sent: job overrides (merged over the preset; objects
@@ -391,6 +438,15 @@ class JobOutput(TypedDict, total=False):
     content_type: str
     path: str
     url: str
+    #: Image output: the file's format.
+    format: ImageFormat
+    #: Image output: the rendition it was made for (its label, or the size it
+    #: came out at).
+    rendition: str
+    #: Image output of a video with several stills: which still, from 1.
+    frame: int
+    #: Image output of a video: the still's time, in seconds.
+    at_seconds: float
 
 
 class JobError(TypedDict, total=False):
@@ -402,11 +458,14 @@ class JobError(TypedDict, total=False):
 
 class JobBilling(TypedDict, total=False):
     billable_minutes: float
+    #: Image output: the images billed (an image job bills no minutes).
+    billable_images: int
     #: Rounded up to the cent.
     amount_cents: int
     #: Exact, in dollars (sub-cent).
     amount_usd: float
-    tier: Literal["sd", "hd", "uhd"]
+    #: ``sd``, ``hd`` or ``uhd``; an image job's is an :data:`ImageTier`.
+    tier: Literal["sd", "hd", "uhd", "up_to_1mp", "up_to_4mp", "over_4mp"]
 
 
 class Job(TypedDict, total=False):
@@ -500,9 +559,10 @@ class SecretFingerprint(TypedDict):
 # --------------------------------------------------------------------------
 
 
-PresetCategory = Literal["web", "mobile", "streaming", "tv", "social", "audio", "archive"]
+PresetCategory = Literal["web", "mobile", "streaming", "tv", "social", "audio", "archive", "image"]
 """The group a preset is shown in. More may be added: treat an unknown one as
-uncategorised. ``audio`` is reserved for audio-only presets."""
+uncategorised. ``audio`` is reserved for audio-only presets and ``image`` for
+still images."""
 
 Platform = Literal["web", "ios", "android", "smart_tv", "legacy", "editing"]
 """Where an output plays. More may be added: ignore unknown ones."""
@@ -916,6 +976,8 @@ class AuthResponse(TypedDict, total=False):
 class UsageTotals(TypedDict, total=False):
     jobs: int
     billable_minutes: float
+    #: Output images billed.
+    billable_images: int
     input_minutes: float
     output_bytes: int
     #: Rounded up to the cent.
@@ -928,8 +990,17 @@ class UsagePoint(TypedDict, total=False):
     date: str
     jobs: int
     billable_minutes: float
+    billable_images: int
     amount_cents: int
     amount_usd: float
+
+
+class ImagesByTier(TypedDict, total=False):
+    """Output images, by tier."""
+
+    up_to_1mp: int
+    up_to_4mp: int
+    over_4mp: int
 
 
 # ``from`` is a Python keyword, so Usage uses the functional syntax.
@@ -942,6 +1013,9 @@ Usage = TypedDict(
         "granularity": Literal["day", "week", "month"],
         "totals": UsageTotals,
         "by_tier": Dict[str, float],
+        # Output images billed, by tier.
+        "by_image_tier": ImagesByTier,
+        # Minutes by codec (image jobs are not counted here).
         "by_codec": Dict[str, float],
         "series": List[UsagePoint],
     },
@@ -1010,6 +1084,18 @@ class RateCard(TypedDict, total=False):
     tiers: Dict[str, str]
 
 
+class ImageRateCard(TypedDict, total=False):
+    """Price per output image in dollars, by the pixels it came out at."""
+
+    unit: Literal["output_image"]
+    currency: str
+    up_to_1mp: float
+    up_to_4mp: float
+    over_4mp: float
+    #: What each tier covers, e.g. ``{"up_to_1mp": "up to 1 megapixel"}``.
+    tiers: Dict[str, str]
+
+
 class Plan(TypedDict, total=False):
     object: Literal["plan"]
     #: ``free`` | ``pay_as_you_go`` | ``starter`` | ``growth`` | ``scale`` | ``enterprise``.
@@ -1028,6 +1114,8 @@ class Plan(TypedDict, total=False):
     trial_credit_cents: int
     trial_days: int
     rates: RateCard
+    #: Image output prices.
+    image_rates: ImageRateCard
     max_concurrent_jobs: int
     max_resolution: int
     max_input_bytes: int
@@ -1088,11 +1176,15 @@ class Billing(TypedDict, total=False):
     object: Literal["billing"]
     plan: Plan
     rates: RateCard
+    #: Image output prices.
+    image_rates: ImageRateCard
     account: CreditAccount
     period: str
     period_start: str
     period_end: str
     usage_minutes: float
+    #: Output images billed this period.
+    usage_images: int
     usage_usd: float
     currency: str
     #: ``False`` when this installation takes no payments (credit is granted by the operator).
@@ -1134,7 +1226,7 @@ class StatementLine(TypedDict, total=False):
     credit_usd: float
     date: str
     quantity: float
-    unit: Literal["output_minute"]
+    unit: Literal["output_minute", "output_image"]
 
 
 class Statement(TypedDict, total=False):
@@ -1148,6 +1240,8 @@ class Statement(TypedDict, total=False):
     status: Literal["open", "closed"]
     lines: List[StatementLine]
     usage_minutes: float
+    #: Output images billed this period.
+    usage_images: int
     usage_cents: int
     currency: str
 
@@ -1160,6 +1254,37 @@ InvoiceLine = StatementLine
 # --------------------------------------------------------------------------
 # Public service info
 # --------------------------------------------------------------------------
+
+
+class ImageFormatInfo(TypedDict, total=False):
+    """An image output format, as ``capabilities.retrieve()`` lists it."""
+
+    id: str
+    name: str
+    default: bool
+    #: Takes ``image.quality``.
+    lossy: bool
+    #: Can be lossless (PNG always, WebP with ``image.lossless``).
+    lossless: bool
+    #: Keeps transparency.
+    alpha: bool
+    #: The quality used when ``image.quality`` is left out; lossy formats only.
+    default_quality: int
+
+
+class ImageLimits(TypedDict, total=False):
+    """Image output limits (``limits["image"]``)."""
+
+    #: Smallest rendition side.
+    min_dimension: int
+    #: Largest rendition side.
+    max_dimension: int
+    #: Most files one job may make: stills x renditions x formats.
+    max_outputs: int
+    #: Most stills one video may give.
+    max_frames: int
+    #: Largest image input.
+    max_input_megapixels: int
 
 
 class Capabilities(TypedDict, total=False):
@@ -1175,6 +1300,13 @@ class Capabilities(TypedDict, total=False):
     input_containers: List[str]
     input_video_codecs: List[str]
     input_audio_codecs: List[str]
+    #: Image output formats; empty when image output is unavailable.
+    image_formats: List[ImageFormatInfo]
+    #: Image inputs read: ``jpeg``, ``png``, ``webp``, ``avif``, ``gif`` (first
+    #: frame), ``tiff``, ``bmp``, ``heic``.
+    input_image_formats: List[str]
+    #: ``max_renditions``, ``max_width``, ``segment_seconds``, and ``image``
+    #: (:class:`ImageLimits`).
     limits: Dict[str, Any]
     system_presets: List[Preset]
 
